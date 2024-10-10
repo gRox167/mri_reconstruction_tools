@@ -64,11 +64,17 @@ def check_mk_dirs(paths):
 @overload
 def to_nifty(
     img: np.ndarray,
+    input_path,
     output_path: str | bytes | os.PathLike,
     affine=torch.eye(4, dtype=torch.float32),
 ):
-    nifty_image = nib.Nifti1Image(img, affine)
-    # check_mk_dirs(output_path)
+    # nifty_image = nib.Nifti1Image(img, affine)
+    # # check_mk_dirs(output_path)
+    # nib.save(nifty_image, output_path)
+    # print("Writed to: ", output_path)
+    img1 = nib.load(input_path)
+    header = img1.header
+    nifty_image = nib.Nifti1Image(img, img1.affine, header=header)
     nib.save(nifty_image, output_path)
     print("Writed to: ", output_path)
 
@@ -95,8 +101,11 @@ def to_nifty(
 
 
 @dispatch
-def to_nifty(img, output_path, affine=torch.eye(4, dtype=torch.float32)):
-    nifty_image = nib.Nifti1Image(img, affine)
+def to_nifty(img, input_path,output_path, affine=torch.eye(4, dtype=torch.float32)):
+    img1 = nib.load(input_path)
+    header = img1.header
+    breakpoint()
+    nifty_image = nib.Nifti1Image(img, img1.affine, header=header)
     nib.save(nifty_image, output_path)
     print("Writed to: ", output_path)
 

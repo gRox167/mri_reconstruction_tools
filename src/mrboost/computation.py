@@ -407,6 +407,7 @@ def nufft_adj_2d(
     image_size: Sequence[int],
     norm_factor: Number | NoneType = None,
 ) -> Shaped[ComplexImage2D, "*channel"]:
+    ic(kspace_data.shape)
     if norm_factor is None:
         norm_factor = np.sqrt(np.prod(image_size))
     return (
@@ -427,6 +428,7 @@ def nufft_adj_2d(
     image_size: Sequence[int],
     norm_factor: Number | NoneType = None,
 ) -> Shaped[ComplexImage2D, "..."]:
+    ic(kspace_traj.shape)
     *batch_shape, _, length = kspace_traj.shape
     batch_size = np.prod(batch_shape, dtype=int)
 
