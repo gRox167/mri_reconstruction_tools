@@ -55,9 +55,7 @@ def voronoi_density_compensation(
         "complx spokes_num spoke_len -> complx (spokes_num spoke_len)",
     )
 
-    kspace_traj = (
-        torch.complex(kspace_traj[0], kspace_traj[1]).contiguous().to(device)
-    )
+    kspace_traj = torch.complex(kspace_traj[0], kspace_traj[1]).contiguous().to(device)
     with jax.default_device(jax.devices("cpu")[0]):
         kspace_traj = torch_to_jax(kspace_traj)
         kspace_traj = (
@@ -190,7 +188,7 @@ def ramp_density_compensation(
 def ramp_density_compensation(
     kspace_traj: KspaceSpokesTraj,
     im_size: Sequence[int] = (320, 320),
-    normalize: bool = True,
+    normalize: bool = False,
     energy_match_radial_with_cartisian: bool = False,
 ):
     _, sp, len = kspace_traj.shape
@@ -211,10 +209,7 @@ def ramp_density_compensation(
     normalize: bool = True,
 ):
     return torch.stack(
-        [
-            ramp_density_compensation(traj, im_size, normalize)
-            for traj in kspace_traj
-        ]
+        [ramp_density_compensation(traj, im_size, normalize) for traj in kspace_traj]
     )
 
 
