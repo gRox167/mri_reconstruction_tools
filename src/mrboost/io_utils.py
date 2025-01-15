@@ -17,6 +17,21 @@ from plum import dispatch, overload
 from xarray import DataArray
 
 
+def plot_3D(image, vmin=None, vmax=None, location=(0, 0, 0)):
+    x, y, z = location
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+
+    axes[0].imshow(image[z, :, :], cmap="gray", vmin=vmin, vmax=vmax)
+    axes[0].title.set_text("Axial")
+    axes[1].imshow(image[:, y, :], cmap="gray", vmin=vmin, vmax=vmax)
+    axes[1].title.set_text("Coronal")
+    axes[2].imshow(image[:, :, x], cmap="gray", vmin=vmin, vmax=vmax)
+    axes[2].title.set_text("Sagittal")
+    for ax in axes:
+        ax.axis("off")
+    return fig, axes
+
+
 def get_raw_data(dat_file_location: Path):
     from twixtools import map_twix, read_twix
 

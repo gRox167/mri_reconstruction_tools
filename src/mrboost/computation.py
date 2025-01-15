@@ -74,7 +74,18 @@ def hamming_filter(nonzero_width_percent: float, width: int) -> np.ndarray:
     pad_width_L = round((width - nonzero_width) // 2)
     pad_width_R = width - nonzero_width - pad_width_L
     hamming_weights = np.float32(np.hamming(nonzero_width))
+    print(pad_width_L, pad_width_R)
     W = np.pad(hamming_weights, pad_width=(pad_width_L, pad_width_R))
+    return W
+
+
+def hanning_filter(nonzero_width_percent: float, width: int) -> np.ndarray:
+    nonzero_width = round(width * nonzero_width_percent)
+    pad_width_L = round((width - nonzero_width) // 2)
+    pad_width_R = width - nonzero_width - pad_width_L
+    hanning_weights = np.float32(np.hanning(nonzero_width))
+    print(pad_width_L, pad_width_R)
+    W = np.pad(hanning_weights, pad_width=(pad_width_L, pad_width_R))
     return W
 
 
@@ -175,13 +186,11 @@ def centralize_kspace(
 
 
 @dispatch
-@torch.compile()
 def ifft_1D(kspace_data: Tensor, dim=-1, norm="ortho") -> Tensor:
     return fftshift(ifft(ifftshift(kspace_data, dim=dim), dim=dim, norm=norm), dim=dim)
 
 
 @dispatch
-@torch.compile()
 def fft_1D(image_data: Tensor, dim=-1, norm="ortho") -> Tensor:
     return ifftshift(fft(fftshift(image_data, dim=dim), dim=dim, norm=norm), dim=dim)
 

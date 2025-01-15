@@ -4,12 +4,14 @@
 #     from torch import Tensor as Array
 # else:
 #     from numpy import ndarray as Array
-from torch import Tensor as Array
 from jaxtyping import Complex, Float, Shaped
+from torch import Tensor as Array
 
 KspaceData = Complex[Array, "length"]
 KspaceSpokesData = Float[Array, "spokes_num spoke_length"]
 KspaceTraj = Float[Array, "2 length"]
 KspaceSpokesTraj = Float[Array, "2 spokes_num spoke_length"]
-ComplexImage2D = Complex[Array, "h w"] | Float[Array, "h w"]
+Image2D = Float[Array, "h w"]
+Image3D = Shaped[Image2D, "d"]
+ComplexImage2D = Complex[Array, "h w"] | Image2D
 ComplexImage3D = Shaped[ComplexImage2D, "d"]

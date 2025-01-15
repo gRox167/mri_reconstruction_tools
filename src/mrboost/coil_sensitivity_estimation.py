@@ -31,7 +31,7 @@ def get_csm_lowk_xy(
         kspace_data,
     )
     kspace_data = comp.ifft_1D(kspace_data * kspace_density_compensation_, dim=1)
-    kspace_data = kspace_data / ops.absolute(kspace_data.max())
+
     coil_sens = comp.nufft_adj_2d(
         comp.radial_spokes_to_kspace_point(kspace_data),
         comp.radial_spokes_to_kspace_point(kspace_traj),
@@ -71,7 +71,7 @@ def get_csm_lowk_xyz(
         kspace_data,
     )
     kspace_data = comp.ifft_1D(kspace_data * kspace_density_compensation_, dim=1)
-    kspace_data = kspace_data / ops.abs(kspace_data).max()
+
     coil_sens = comp.nufft_adj_2d(
         comp.radial_spokes_to_kspace_point(kspace_data),
         comp.radial_spokes_to_kspace_point(kspace_traj),

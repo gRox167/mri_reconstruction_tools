@@ -204,7 +204,7 @@ def ramp_density_compensation(
 
 @overload
 def ramp_density_compensation(
-    kspace_traj: Shaped[KspaceTraj, "b"],
+    kspace_traj: Shaped[KspaceTraj, "b"],  # noqa: F821
     im_size: Sequence[int] = (320, 320),
     normalize: bool = True,
 ):
@@ -215,7 +215,7 @@ def ramp_density_compensation(
 
 @overload
 def ramp_density_compensation(
-    kspace_traj: Shaped[KspaceSpokesTraj, "b"],
+    kspace_traj: Shaped[KspaceSpokesTraj, "b"],  # noqa: F821
     im_size: Sequence[int] = (320, 320),
     normalize: bool = True,
     energy_match_radial_with_cartisian: bool = False,
