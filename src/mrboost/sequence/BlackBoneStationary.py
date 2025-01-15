@@ -36,7 +36,7 @@ def preprocess_raw_data(
     raw_data: torch.Tensor, recon_args: BlackBoneStationaryArgs
 ):
     return preprocess_raw_data.invoke(torch.Tensor, GoldenAngleArgs)(
-        raw_data, recon_args, z_dim_fft=False
+        raw_data, recon_args, z_dim_fft=True
     )
 
 

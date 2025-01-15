@@ -34,8 +34,11 @@ def plot_3D(image, vmin=None, vmax=None, location=(0, 0, 0)):
 
 def get_raw_data(dat_file_location: Path):
     from twixtools import map_twix, read_twix
-
+    print("dat_file_location is ",dat_file_location)
+    if not os.path.exists(dat_file_location):
+        raise FileNotFoundError("File not found")
     twixobj = read_twix(dat_file_location)[-1]
+
     raw_data = map_twix(twixobj)["image"]
     # raw_data.flags["remove_os"] = True # will led to warp in radial sampling
     raw_data = raw_data[:].squeeze()
