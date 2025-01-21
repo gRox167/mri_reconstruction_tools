@@ -60,9 +60,9 @@ def voronoi_density_compensation(
     )
     with jax.default_device(jax.devices("cpu")[0]):
         kspace_traj = torch_to_jax(kspace_traj)
-        kspace_traj = (
-            kspace_traj / jnp.abs(kspace_traj).max() / 2
-        )  # normalize to -0.5,0.5
+        # kspace_traj = (
+        #     kspace_traj / jnp.abs(kspace_traj).max() / 2
+        # )  # normalize to -0.5,0.5
         kspace_traj_unique, reverse_indices = jnp.unique(
             kspace_traj, return_inverse=True, axis=0
         )
@@ -171,8 +171,8 @@ def ramp_density_compensation(
         # )
         impulse = torch.zeros(
             (im_size[0], im_size[1]), dtype=torch.complex64, device=w.device
-        )
-        impulse[im_size[0] // 2, im_size[1] // 2] = 1
+        ) #create a [320,320] all 0 matrix
+        impulse[im_size[0] // 2, im_size[1] // 2] = 1 # make the center as 1
         wmax = (
             nufft_adj_2d(
                 w * nufft_2d(impulse, kspace_traj, im_size),
@@ -196,10 +196,10 @@ def ramp_density_compensation(
     _, sp, len = kspace_traj.shape
     w = ramp_density_compensation(
         radial_spokes_to_kspace_point(kspace_traj), im_size, normalize
-    )
+    ) # get the initial density compensation weights for the transformed trajectory
     w = kspace_point_to_radial_spokes(w, len)
     if energy_match_radial_with_cartisian:
-        nyquist_limit_spoke_num = round(np.pi * len // 2)
+        nyquist_limit_spoke_num = round(np.pi * len // 2) # compute the number of spokes to satisfy the Nyquist limit for radial sampling
         w *= nyquist_limit_spoke_num / sp
     return w
 

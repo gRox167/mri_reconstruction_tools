@@ -13,7 +13,7 @@ import torch.nn.functional as F
 # jl.include("/data-local/anlab/Chunxu/mri_reconstruction_tools/src/mrboost/computation.jl")
 from einops import rearrange, reduce, repeat
 
-# from icecream import ic
+from icecream import ic
 from jax import numpy as np
 from jaxtyping import Shaped
 from plum import dispatch, overload
@@ -66,10 +66,18 @@ def batch_process(batch_size: int, device: torch.device, batch_dim=0):
 
 
 def hamming_filter(nonzero_width_percent: float, width: int) -> np.ndarray:
-    nonzero_width = round(width * nonzero_width_percent)
-    pad_width_L = round((width - nonzero_width) // 2)
-    pad_width_R = width - nonzero_width - pad_width_L
+    nonzero_width = round(width * nonzero_width_percent) #640*0,05=32
+    pad_width_L = round((width - nonzero_width) // 2) # (640-32)/2=304
+    pad_width_R = width - nonzero_width - pad_width_L # 640-32-304=304
     hamming_weights = np.float32(np.hamming(nonzero_width))
+    W = np.pad(hamming_weights, pad_width=(pad_width_L, pad_width_R))
+    return W
+
+def hanning_filter(nonzero_width_percent: float, width: int) -> np.ndarray:
+    nonzero_width = round(width * nonzero_width_percent) #640*0,05=32
+    pad_width_L = round((width - nonzero_width) // 2) # (640-32)/2=304
+    pad_width_R = width - nonzero_width - pad_width_L # 640-32-304=304
+    hamming_weights = np.float32(np.hanning(nonzero_width))
     W = np.pad(hamming_weights, pad_width=(pad_width_L, pad_width_R))
     return W
 
@@ -198,17 +206,15 @@ def generate_golden_angle_radial_spokes_kspace_trajectory(
     spokes_num, spoke_length
 ):
     # create a k-space trajectory
-    KWIC_GOLDENANGLE = (np.sqrt(5) - 1) / 2  # = 111.246117975
-    # M_PI = 3.14159265358979323846
-    # KWIC_GOLDENANGLE = 111.246117975
-    k = torch.linspace(-0.5, 0.5 - 1 / spoke_length, spoke_length)
-    k[spoke_length // 2] = 0
-    A = torch.arange(spokes_num) * torch.pi * KWIC_GOLDENANGLE  # /180
-    kx = torch.outer(torch.cos(A), k)
+    KWIC_GOLDENANGLE = (np.sqrt(5) - 1) / 2  # radian *180 = 111.246117975
+    k = torch.linspace(-0.5, 0.5 - 1 / spoke_length, spoke_length) #[start:end:step] create one-d array start from -0.5,and contains 640 steps.
+    k[spoke_length // 2] = 0 # make the center point to be 0
+    A = torch.arange(spokes_num) * torch.pi * KWIC_GOLDENANGLE  # /180 #create the angle of each spoke
+    kx = torch.outer(torch.cos(A), k) #outer product: cos(A) by k, #sampling cosine function
     ky = torch.outer(torch.sin(A), k)
     ktraj = torch.stack((kx, ky), dim=0)
     # ktraj = torch.complex(kx, ky)
-    return ktraj * 2 * torch.pi
+    return ktraj * 2 * torch.pi 
 
 
 def data_binning(
@@ -407,7 +413,7 @@ def nufft_adj_2d(
     image_size: Sequence[int],
     norm_factor: Number | NoneType = None,
 ) -> Shaped[ComplexImage2D, "*channel"]:
-    ic(kspace_data.shape)
+    # ic(kspace_data.shape)
     if norm_factor is None:
         norm_factor = np.sqrt(np.prod(image_size))
     return (
@@ -428,7 +434,7 @@ def nufft_adj_2d(
     image_size: Sequence[int],
     norm_factor: Number | NoneType = None,
 ) -> Shaped[ComplexImage2D, "..."]:
-    ic(kspace_traj.shape)
+    # ic(kspace_traj.shape)
     *batch_shape, _, length = kspace_traj.shape
     batch_size = np.prod(batch_shape, dtype=int)
 

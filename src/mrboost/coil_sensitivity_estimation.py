@@ -13,7 +13,13 @@ from .density_compensation import (
     ramp_density_compensation,
 )
 
-
+from plum import dispatch, overload
+from dlboost.utils.type_utils import (
+    KspaceData,
+    KspaceTraj,
+    KspaceSpokesTraj,
+)
+from jaxtyping import Shaped
 def fft(x, ax):
     return np.fft.fftshift(
         np.fft.fftn(np.fft.ifftshift(x, axes=ax), axes=ax, norm="ortho"),
@@ -27,6 +33,63 @@ def ifft(X, ax):
         axes=ax,
     )
 
+def center_crop(
+        kspace_data,
+        hamming_filter_ratio=[0.05,0.05]):
+    ch, z, sp, spoke_len = kspace_data.shape
+    spoke_len = kspace_data.shape[-1]
+    ########### create hamming filter ################
+    W = comp.hamming_filter(
+        nonzero_width_percent=hamming_filter_ratio[0], width=spoke_len
+    )
+    spoke_lowpass_filter_xy = torch.from_numpy(W)
+    Wz = comp.hamming_filter(nonzero_width_percent=hamming_filter_ratio[1], width=z)
+    spoke_lowpass_filter_z = torch.from_numpy(Wz)
+    ############ Apply filters on the k-space data and trajectory ############
+    # kspace_traj = spoke_lowpass_filter_xy * kspace_traj
+    kspace_data = einx.multiply(
+        "len, z, ch z sp len -> ch z sp len",
+        spoke_lowpass_filter_xy,
+        spoke_lowpass_filter_z,
+        kspace_data,
+    )
+    # z non-zero width: round(224*0.05) = 11
+    # xy non-zero width: round(640*0.05) = 32
+    # pad_width_Lz = round((224 - 11) // 2) = 106; pad_width_Rz = 224-11-106 = 107
+    # pad_width_Lxy = round((640 - 32) // 2) = 304; pad_width_Rxy = 640-32-304 = 304
+    
+    # kspace_data = kspace_data[:,106:-107,:,304:-304] # ch,z,sp,len
+    # kspace_traj = kspace_traj[:,:,304:-304] #2,sp,len
+    return kspace_data
+
+def center_crop_hanning(
+        kspace_data,
+        hamming_filter_ratio=[0.05,0.05]):
+    ch, z, sp, spoke_len = kspace_data.shape
+    spoke_len = kspace_data.shape[-1]
+    ########### create hamming filter ################
+    W = comp.hanning_filter(
+        nonzero_width_percent=hamming_filter_ratio[0], width=spoke_len
+    )
+    spoke_lowpass_filter_xy = torch.from_numpy(W)
+    Wz = comp.hanning_filter(nonzero_width_percent=hamming_filter_ratio[1], width=z)
+    spoke_lowpass_filter_z = torch.from_numpy(Wz)
+    ############ Apply filters on the k-space data and trajectory ############
+    # kspace_traj = spoke_lowpass_filter_xy * kspace_traj
+    kspace_data = einx.multiply(
+        "len, z, ch z sp len -> ch z sp len",
+        spoke_lowpass_filter_xy,
+        spoke_lowpass_filter_z,
+        kspace_data,
+    )
+    # z non-zero width: round(224*0.05) = 11
+    # xy non-zero width: round(640*0.05) = 32
+    # pad_width_Lz = round((224 - 11) // 2) = 106; pad_width_Rz = 224-11-106 = 107
+    # pad_width_Lxy = round((640 - 32) // 2) = 304; pad_width_Rxy = 640-32-304 = 304
+    
+    # kspace_data = kspace_data[:,106:-107,:,304:-304] # ch,z,sp,len
+    # kspace_traj = kspace_traj[:,:,304:-304] #2,sp,len
+    return kspace_data
 
 def get_csm_lowk_xy(
     kspace_data,
@@ -44,7 +107,6 @@ def get_csm_lowk_xy(
     spoke_len = kspace_data.shape[-1]
     W = comp.hamming_filter(nonzero_width_percent=hamming_filter_ratio, width=spoke_len)
     spoke_lowpass_filter_xy = torch.from_numpy(W)
-
     kspace_data = spoke_lowpass_filter_xy * kspace_data
     kspace_data = einx.multiply(
         "len, ch z sp len -> ch z sp len",
@@ -72,41 +134,102 @@ def get_csm_lowk_xyz(
     im_size,
     hamming_filter_ratio=[0.05, 0.1],
 ):
-    ch, z, sp, spoke_len = kspace_data.shape
+    ch, z, sp, spoke_len = kspace_data.shape #ch,kz,spokes,spoke_len
     kspace_density_compensation_ = ramp_density_compensation(
         comp.radial_spokes_to_kspace_point(kspace_traj), im_size
     )
     kspace_density_compensation_ = comp.kspace_point_to_radial_spokes(
         kspace_density_compensation_, spoke_len
     )
+    # ic(kspace_density_compensation_.shape)
     spoke_len = kspace_data.shape[-1]
     W = comp.hamming_filter(
         nonzero_width_percent=hamming_filter_ratio[0], width=spoke_len
-    )
+    ) #for kx-ky
     spoke_lowpass_filter_xy = torch.from_numpy(W)
-    Wz = comp.hamming_filter(nonzero_width_percent=hamming_filter_ratio[1], width=z)
+    Wz = comp.hamming_filter(nonzero_width_percent=hamming_filter_ratio[1], width=z) #kz
     spoke_lowpass_filter_z = torch.from_numpy(Wz)
-
-    kspace_data = spoke_lowpass_filter_xy * kspace_data
+    # kspace_data =  kspace_data*spoke_lowpass_filter_xy
     kspace_data = einx.multiply(
         "len, z, ch z sp len -> ch z sp len",
-        spoke_lowpass_filter_xy,
-        spoke_lowpass_filter_z,
-        kspace_data,
+        spoke_lowpass_filter_xy, #dimension: len
+        spoke_lowpass_filter_z,#dimension:z
+        kspace_data,#dimension: ch z sp len
     )
-    kspace_data = comp.ifft_1D(kspace_data * kspace_density_compensation_, dim=1)
-    kspace_data = kspace_data / kspace_data.abs().max()
+    # kspace_data = comp.ifft_1D(kspace_data * kspace_density_compensation_, dim=1) #ifft along z. 
+    # kspace_data = kspace_data / kspace_data.abs().max() #normalize
+    # coil_sens = comp.nufft_adj_2d(
+    #     comp.radial_spokes_to_kspace_point(kspace_data),
+    #     comp.radial_spokes_to_kspace_point(kspace_traj),
+    #     im_size,
+    #     2* np.sqrt(np.prod(im_size))
+    # )
+
+    kspace_data = comp.ifft_1D(kspace_data , dim=1) #ifft along z. 
+    kspace_data = kspace_data / kspace_data.abs().max() #normalize
     coil_sens = comp.nufft_adj_2d(
-        comp.radial_spokes_to_kspace_point(kspace_data),
+        comp.radial_spokes_to_kspace_point(kspace_data*kspace_density_compensation_),
         comp.radial_spokes_to_kspace_point(kspace_traj),
         im_size,
+        2* np.sqrt(np.prod(im_size))
     )
-
     img_sens_SOS = torch.sqrt(einx.sum("[ch] z h w", coil_sens.abs() ** 2))
     coil_sens = coil_sens / img_sens_SOS
     coil_sens[torch.isnan(coil_sens)] = 0  # optional
     # coil_sens /= coil_sens.abs().max()
     return coil_sens
+
+@overload
+def get_csm_3d_input(
+        kspace_data: Shaped[KspaceData, "b ch z"],
+        kspace_traj: Shaped[KspaceTraj,"b"],
+        im_size):
+    #ch, z, sp, spoke_len = comp.kspace_point_to_radial_spokes(kspace_data[0],640).shape #ch,kz,spokes,spoke_len
+    kspace_density_compensation_ = ramp_density_compensation(
+        comp.kspace_point_to_radial_spokes(kspace_traj[0],640), im_size
+    ) # [80,640]
+    kspace_data = comp.kspace_point_to_radial_spokes(kspace_data[0],640) #(ch,kz,spokes,spoke_len)
+    kspace_data = comp.ifft_1D(kspace_data, dim=1) #ifft along z. (20,224,80,640)*(80,640) = (20,224,80,640)
+    kspace_data = kspace_data / kspace_data.abs().max() #normalize
+    coil_sens = comp.nufft_adj_2d(
+        comp.radial_spokes_to_kspace_point(kspace_data*kspace_density_compensation_),
+        kspace_traj[0], #[2,80*640]
+        im_size,
+        2* np.sqrt(np.prod(im_size))
+    )
+    img_sens_SOS = torch.sqrt(einx.sum("[ch] z h w", coil_sens.abs() ** 2))
+    coil_sens = coil_sens / img_sens_SOS
+    coil_sens[torch.isnan(coil_sens)] = 0
+    return coil_sens
+
+@overload
+def get_csm_3d_input(
+        kspace_data: Shaped[KspaceData,"ch z spokes_num"],
+        kspace_traj: Shaped[KspaceSpokesTraj,"..."],
+        im_size):
+    #ch, z, sp, spoke_len = comp.kspace_point_to_radial_spokes(kspace_data[0],640).shape #ch,kz,spokes,spoke_len
+    kspace_density_compensation_ = ramp_density_compensation(
+        kspace_traj, im_size
+    ) # [80,640]
+    kspace_data = comp.ifft_1D(kspace_data, dim=1) #ifft along z. 
+    kspace_data = kspace_data / kspace_data.abs().max() #normalize
+    coil_sens = comp.nufft_adj_2d(
+        comp.radial_spokes_to_kspace_point(kspace_data*kspace_density_compensation_),# [20,224,80,640]*[80,640] = [20,224,80,640]
+        comp.radial_spokes_to_kspace_point(kspace_traj), #[2,80*640]
+        im_size,
+        2* np.sqrt(np.prod(im_size))
+    )
+    img_sens_SOS = torch.sqrt(einx.sum("[ch] z h w", coil_sens.abs() ** 2))
+    coil_sens = coil_sens / img_sens_SOS
+    coil_sens[torch.isnan(coil_sens)] = 0
+    return coil_sens
+
+@dispatch
+def get_csm_3d_input(
+        kspace_data,
+        kspace_traj,
+        im_size):
+    pass
 
 
 def lowk_xy(
