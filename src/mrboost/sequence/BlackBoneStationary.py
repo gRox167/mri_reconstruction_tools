@@ -1,14 +1,9 @@
-# %%
 from dataclasses import dataclass, field
 from typing import Callable, Dict, Sequence
 
 import einx
 import numpy as np
 import torch
-
-# from icecream import ic
-from plum import dispatch
-
 from mrboost import computation as comp
 from mrboost.coil_sensitivity_estimation import (
     get_csm_lowk_xyz,
@@ -16,9 +11,8 @@ from mrboost.coil_sensitivity_estimation import (
 from mrboost.density_compensation import (
     ramp_density_compensation,
 )
-
-# from mrboost.io_utils import *
 from mrboost.sequence.GoldenAngle import GoldenAngleArgs
+from plum import dispatch
 
 
 @dataclass
@@ -32,9 +26,7 @@ class BlackBoneStationaryArgs(GoldenAngleArgs):
 
 
 @dispatch
-def preprocess_raw_data(
-    raw_data: torch.Tensor, recon_args: BlackBoneStationaryArgs
-):
+def preprocess_raw_data(raw_data: torch.Tensor, recon_args: BlackBoneStationaryArgs):
     return preprocess_raw_data.invoke(torch.Tensor, GoldenAngleArgs)(
         raw_data, recon_args, z_dim_fft=True
     )

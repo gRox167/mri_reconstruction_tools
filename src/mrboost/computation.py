@@ -3,13 +3,6 @@ from types import NoneType
 from typing import Sequence
 
 import einx
-
-# backend = os.environ["KERAS_BACKEND"]
-# if backend == "jax":
-#     import jax
-#     import jax.numpy as np
-#     from jax.typing import ArrayLike
-# elif backend == "torch":
 import numpy as np
 
 # import numpy as np
@@ -34,10 +27,12 @@ from tqdm import tqdm
 # from .io_utils import *
 from .type_utils import (
     ComplexImage2D,
+    ComplexImage3D,
     KspaceData,
     KspaceSpokesData,
     KspaceSpokesTraj,
     KspaceTraj,
+    KspaceTraj3D,
 )
 
 # else:
@@ -74,7 +69,6 @@ def hamming_filter(nonzero_width_percent: float, width: int) -> np.ndarray:
     pad_width_L = round((width - nonzero_width) // 2)
     pad_width_R = width - nonzero_width - pad_width_L
     hamming_weights = np.float32(np.hamming(nonzero_width))
-    print(pad_width_L, pad_width_R)
     W = np.pad(hamming_weights, pad_width=(pad_width_L, pad_width_R))
     return W
 
@@ -388,6 +382,63 @@ def nufft_2d(
 
 
 @overload
+def nufft_3d(
+    images: Shaped[ComplexImage3D, "*channel"],
+    kspace_traj: KspaceTraj3D,
+    image_size: Sequence[int],
+    norm_factor: Number | NoneType = None,
+) -> Shaped[KspaceData, " *channel"]:
+    if norm_factor is None:
+        norm_factor = np.sqrt(np.prod(image_size))
+    return (
+        FinufftType2.apply(
+            kspace_traj,
+            images,
+            dict(isign=-1, modeord=0),
+        )
+        / norm_factor
+    )
+
+
+@overload
+def nufft_3d(
+    images: Shaped[ComplexImage3D, "..."],
+    kspace_traj: Shaped[KspaceTraj3D, "... batch"],
+    image_size: Sequence[int],
+    norm_factor: Number | NoneType = None,
+) -> Shaped[KspaceData, "..."]:
+    *batch_shape, _, length = kspace_traj.shape
+    batch_size = np.prod(batch_shape, dtype=int)
+    kspace_traj_batched = kspace_traj.view(-1, 2, length)
+
+    *channel_shape, h, w = images.shape[len(batch_shape) :]
+    images_batched = images.view(batch_size, *channel_shape, h, w)
+
+    output = torch.stack(
+        [
+            nufft_3d(
+                images_batched[i],
+                kspace_traj_batched[i],
+                image_size,
+                norm_factor,
+            )
+            for i in range(batch_size)
+        ],
+    )
+    return output.view(*batch_shape, *channel_shape, length)
+
+
+@dispatch
+def nufft_3d(
+    images,
+    kspace_traj,
+    image_size,
+    norm_factor,
+):
+    pass
+
+
+@overload
 def nufft_adj_2d(
     kspace_data: Shaped[KspaceData, "*channel"],
     kspace_traj: KspaceTraj,
@@ -448,6 +499,67 @@ def nufft_adj_2d(
     pass
 
 
+@overload
+def nufft_adj_3d(
+    kspace_data: Shaped[KspaceData, "*channel"],
+    kspace_traj: KspaceTraj3D,
+    image_size: Sequence[int],
+    norm_factor: Number | NoneType = None,
+) -> Shaped[ComplexImage2D, "*channel"]:
+    if norm_factor is None:
+        norm_factor = np.sqrt(np.prod(image_size))
+    return (
+        FinufftType1.apply(
+            kspace_traj,
+            kspace_data,
+            tuple(image_size),
+            dict(isign=1, modeord=0),
+        )
+        / norm_factor
+    )
+
+
+@overload
+def nufft_adj_2d(
+    kspace_data: Shaped[KspaceData, "..."],
+    kspace_traj: Shaped[KspaceTraj3D, "... batch"],
+    image_size: Sequence[int],
+    norm_factor: Number | NoneType = None,
+) -> Shaped[ComplexImage2D, "..."]:
+    *batch_shape, _, length = kspace_traj.shape
+    batch_size = np.prod(batch_shape, dtype=int)
+
+    kspace_traj_batched = einx.rearrange(
+        "b... comp len -> (b...) comp len", kspace_traj
+    )
+
+    *channel_shape, length = kspace_data.shape[len(batch_shape) :]
+    kspace_data_batched = kspace_data.view(batch_size, *channel_shape, length)
+    output = torch.stack(
+        [
+            nufft_adj_3d(
+                kspace_data_batched[i],
+                kspace_traj_batched[i],
+                tuple(image_size),
+                norm_factor,
+            )
+            for i in range(batch_size)
+        ],
+    )
+    return einx.rearrange("(b...) ch... h w -> b... ch... h w", output, b=batch_shape)
+    # return output.view(*batch_shape, *channel_shape, *image_size)
+
+
+@dispatch
+def nufft_adj_3d(
+    kspace_data,
+    kspace_traj,
+    image_size,
+    norm_factor,
+):
+    pass
+
+
 def radial_spokes_to_kspace_point(
     x: Shaped[KspaceSpokesData, "..."] | Shaped[KspaceSpokesTraj, "..."],
 ):
@@ -466,27 +578,3 @@ def kspace_point_to_radial_spokes(
         x,
         len=spoke_len,
     )
-
-
-# def generate_nufft_op(image_size):
-#     norm_factor = np.sqrt(np.prod(image_size) * (2 ** len(image_size)))
-#     nufft_op = (
-#         lambda images, points: finufft_type2(
-#             points,
-#             images,
-#             isign=-1,
-#             modeord=0,
-#         )
-#         / norm_factor
-#     )
-#     nufft_adj_op = (
-#         lambda values, points: finufft_type1(
-#             points,
-#             values,
-#             tuple(image_size),
-#             isign=1,
-#             modeord=0,
-#         )
-#         / norm_factor
-#     )
-#     return nufft_op, nufft_adj_op

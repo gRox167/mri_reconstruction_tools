@@ -17,8 +17,12 @@ from plum import dispatch, overload
 from xarray import DataArray
 
 
+def torch_to_nii_direction(data):
+    return einx.rearrange("d h w -> h w d", data.flip(0, 1))
+
+
 def plot_3D(image, vmin=None, vmax=None, location=(0, 0, 0)):
-    x, y, z = location
+    z, y, x = location
     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
 
     axes[0].imshow(image[z, :, :], cmap="gray", vmin=vmin, vmax=vmax)
@@ -32,9 +36,10 @@ def plot_3D(image, vmin=None, vmax=None, location=(0, 0, 0)):
     return fig, axes
 
 
-def get_raw_data(dat_file_location: Path):
+def get_raw_data(dat_file_location: Path, multi_echo=False):
     from twixtools import map_twix, read_twix
-    print("dat_file_location is ",dat_file_location)
+
+    print("dat_file_location is ", dat_file_location)
     if not os.path.exists(dat_file_location):
         raise FileNotFoundError("File not found")
     twixobj = read_twix(dat_file_location)[-1]
@@ -48,13 +53,20 @@ def get_raw_data(dat_file_location: Path):
     # twixobj = twixobj[-1]
     # except KeyError:
     #     self.twixobj = twixobj
-    # twixobj.image.squeeze = True
-    # twixobj.image.flagRemoveOS = False
-    raw_data = einx.rearrange(
-        "par lin cha col -> cha par lin col",
-        raw_data,
-    )
-    shape_dict = parse_shape(raw_data, "ch_num partition_num spoke_num spoke_len")
+    if multi_echo:
+        raw_data = einx.rearrange(
+            "echo par lin cha col -> echo cha par lin col",
+            raw_data,
+        )
+        shape_dict = parse_shape(
+            raw_data, "echo_num ch_num partition_num spoke_num spoke_len"
+        )
+    else:
+        raw_data = einx.rearrange(
+            "par lin cha col -> cha par lin col",
+            raw_data,
+        )
+        shape_dict = parse_shape(raw_data, "ch_num partition_num spoke_num spoke_len")
     print(shape_dict)
     return torch.from_numpy(raw_data), shape_dict, mdh, twixobj
 
