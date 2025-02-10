@@ -21,7 +21,7 @@ from pytorch_finufft.functional import (
     FinufftType2,
 )
 from torch import Tensor
-from torch.fft import fft, fftshift, ifft, ifftshift
+from torch.fft import fft, fft2, fftn, fftshift, ifft, ifft2, ifftn, ifftshift
 from tqdm import tqdm
 
 # from .io_utils import *
@@ -179,14 +179,28 @@ def centralize_kspace(
     return kspace_data_, kspace_data_mask
 
 
-@dispatch
 def ifft_1D(kspace_data: Tensor, dim=-1, norm="ortho") -> Tensor:
     return fftshift(ifft(ifftshift(kspace_data, dim=dim), dim=dim, norm=norm), dim=dim)
 
 
-@dispatch
 def fft_1D(image_data: Tensor, dim=-1, norm="ortho") -> Tensor:
     return ifftshift(fft(fftshift(image_data, dim=dim), dim=dim, norm=norm), dim=dim)
+
+
+def ifft_2D(kspace_data: Tensor, dim=(-2, -1), norm="ortho") -> Tensor:
+    return fftshift(ifft2(ifftshift(kspace_data, dim=dim), dim=dim, norm=norm), dim=dim)
+
+
+def fft_2D(image_data: Tensor, dim=(-2, -1), norm="ortho") -> Tensor:
+    return ifftshift(fft2(fftshift(image_data, dim=dim), dim=dim, norm=norm), dim=dim)
+
+
+def ifft_nD(kspace_data: Tensor, dim=(-3, -2, -1), norm="ortho") -> Tensor:
+    return fftshift(ifftn(ifftshift(kspace_data, dim=dim), dim=dim, norm=norm), dim=dim)
+
+
+def fft_nD(image_data: Tensor, dim=(-3, -2, -1), norm="ortho") -> Tensor:
+    return ifftshift(fftn(fftshift(image_data, dim=dim), dim=dim, norm=norm), dim=dim)
 
 
 def generate_golden_angle_radial_spokes_kspace_trajectory(spokes_num, spoke_length):
@@ -505,7 +519,7 @@ def nufft_adj_3d(
     kspace_traj: KspaceTraj3D,
     image_size: Sequence[int],
     norm_factor: Number | NoneType = None,
-) -> Shaped[ComplexImage2D, "*channel"]:
+) -> Shaped[ComplexImage3D, "*channel"]:
     if norm_factor is None:
         norm_factor = np.sqrt(np.prod(image_size))
     return (
@@ -520,12 +534,12 @@ def nufft_adj_3d(
 
 
 @overload
-def nufft_adj_2d(
+def nufft_adj_3d(
     kspace_data: Shaped[KspaceData, "..."],
     kspace_traj: Shaped[KspaceTraj3D, "... batch"],
     image_size: Sequence[int],
     norm_factor: Number | NoneType = None,
-) -> Shaped[ComplexImage2D, "..."]:
+) -> Shaped[ComplexImage3D, "..."]:
     *batch_shape, _, length = kspace_traj.shape
     batch_size = np.prod(batch_shape, dtype=int)
 
