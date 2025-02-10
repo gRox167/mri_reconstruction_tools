@@ -162,11 +162,6 @@ def ramp_density_compensation(
     if normalize:
         #    Whether to normalize the density compensation.
         #    We normalize such that the energy of PSF = 1
-        # wmax = torch.norm(
-        #     nufft_adj_2d(
-        #         w * nufft_2d(impulse, kspace_traj, im_size), kspace_traj, im_size
-        #     )
-        # )
         impulse = torch.zeros(
             (im_size[0], im_size[1]), dtype=torch.complex64, device=w.device
         )

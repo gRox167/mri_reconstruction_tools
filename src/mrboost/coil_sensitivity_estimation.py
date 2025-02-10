@@ -53,11 +53,11 @@ def get_csm_lowk_xyz(
 ):
     ch, z, sp, spoke_len = kspace_data.shape
     kspace_density_compensation_ = ramp_density_compensation(
-        comp.radial_spokes_to_kspace_point(kspace_traj), im_size
+        kspace_traj, im_size, normalize=True
     )
-    kspace_density_compensation_ = comp.kspace_point_to_radial_spokes(
-        kspace_density_compensation_, spoke_len
-    )
+    # kspace_density_compensation_ = comp.kspace_point_to_radial_spokes(
+    #     kspace_density_compensation_, spoke_len
+    # )
     spoke_len = kspace_data.shape[-1]
     Wxy = comp.hamming_filter(
         nonzero_width_percent=hamming_filter_ratio[0], width=spoke_len

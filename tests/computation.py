@@ -1,6 +1,13 @@
 import pytest
 import torch
-from mrboost.computation import fft_2D, fft_nD, nufft_adj_2d, nufft_adj_3d
+from mrboost.computation import (
+    fft_2D,
+    fft_nD,
+    generate_golden_angle_radial_spokes_kspace_trajectory,
+    generate_golden_angle_stack_of_stars_kspace_trajectory,
+    nufft_adj_2d,
+    nufft_adj_3d,
+)
 
 
 @pytest.fixture
@@ -144,3 +151,76 @@ def test_nufft_adj_2d_correctness(known_2d_image_and_kspace):
     image, kspace_data, kspace_traj, image_size = known_2d_image_and_kspace
     reconstructed_image = nufft_adj_2d(kspace_data, kspace_traj, image_size)
     assert torch.allclose(reconstructed_image.abs(), image.abs(), atol=5e-1, rtol=1e-1)
+
+
+# Test for generate_golden_angle_radial_spokes_kspace_trajectory
+def test_generate_golden_angle_radial_spokes_kspace_trajectory():
+    # Test case 1: Basic shape check
+    spokes_num = 2
+    spoke_length = 4
+    ktraj = generate_golden_angle_radial_spokes_kspace_trajectory(
+        spokes_num, spoke_length
+    )
+    assert ktraj.shape == (
+        2,
+        spokes_num,
+        spoke_length,
+    ), "Shape mismatch for 2D radial trajectory"
+
+    traj_gt = torch.tensor(
+        [
+            [
+                [-3.1416, -1.5708, 0.0000, 1.5708],  # kx for spoke 1
+                [1.1384, 0.5692, -0.0000, -0.5692],
+            ],  # kx for spoke 2
+            [
+                [0.0000, 0.0000, 0.0000, 0.0000],  # ky for spoke 1
+                [-2.9281, -1.4640, 0.0000, 1.4640],
+            ],  # ky for spoke 2
+        ]
+    )
+    # Test case 2: Check that the center of the k-space is zero
+    assert torch.allclose(
+        ktraj, traj_gt, atol=1e-3, rtol=1e-3
+    ), "Trajectory does not match expected values"
+
+
+# Test for generate_golden_angle_stack_of_stars_kspace_trajectory
+def test_generate_golden_angle_stack_of_stars_kspace_trajectory():
+    # Test case 1: Basic shape check
+    spokes_num = 2
+    spoke_length = 4
+    kz_mask = torch.tensor([1, 0, 1])
+    ktraj_3d = generate_golden_angle_stack_of_stars_kspace_trajectory(
+        spokes_num, spoke_length, kz_mask
+    )
+    kz_num_sampled = torch.sum(kz_mask).item()
+    assert ktraj_3d.shape == (
+        3,
+        kz_num_sampled,
+        spokes_num,
+        spoke_length,
+    ), "Shape mismatch for 3D stack-of-stars trajectory"
+
+    # Test case 2: Check that the kz-axis positions are correctly applied
+    kz_positions = 2 * torch.pi * torch.linspace(-0.5, 0.5, kz_mask.shape[-1])
+    sampled_z_positions = kz_positions[kz_mask == 1]
+    for i, z in enumerate(sampled_z_positions):
+        assert torch.allclose(
+            ktraj_3d[2, i, :, :],
+            z * torch.ones(spokes_num, spoke_length),
+            atol=1e-3,
+            rtol=1e-3,
+        ), "kz-axis positions are incorrect"
+
+    # Test case 3: Check that the 2D trajectory is correctly repeated for each kz position
+    ktraj_2d = generate_golden_angle_radial_spokes_kspace_trajectory(
+        spokes_num, spoke_length
+    )
+    for i in range(kz_num_sampled):
+        assert torch.allclose(
+            ktraj_3d[0, i, :, :], ktraj_2d[0], atol=1e-6, rtol=1e-6
+        ), "kx values are incorrect"
+        assert torch.allclose(
+            ktraj_3d[1, i, :, :], ktraj_2d[1], atol=1e-6, rtol=1e-6
+        ), "ky values are incorrect"

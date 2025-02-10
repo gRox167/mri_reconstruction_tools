@@ -70,13 +70,14 @@ def mcnufft_reconstruct(
     recon_args: GoldenAngleArgs,
     csm_lowk_hamming_ratio: Sequence[float] = [0.03, 0.03],
     density_compensation_func: Callable = ramp_density_compensation,
+    discard_first_n_spokes: int = 5,
     *args,
     **kwargs,
 ):
     kspace_data_centralized, kspace_data_z, kspace_traj = (
-        data_preprocessed["kspace_data_centralized"],
-        data_preprocessed["kspace_data_z"],
-        data_preprocessed["kspace_traj"],
+        data_preprocessed["kspace_data_centralized"][:, :, discard_first_n_spokes:],
+        data_preprocessed["kspace_data_z"][:, :, discard_first_n_spokes:],
+        data_preprocessed["kspace_traj"][:, discard_first_n_spokes:],
     )
 
     csm = get_csm_lowk_xyz(

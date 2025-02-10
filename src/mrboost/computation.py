@@ -204,18 +204,79 @@ def fft_nD(image_data: Tensor, dim=(-3, -2, -1), norm="ortho") -> Tensor:
 
 
 def generate_golden_angle_radial_spokes_kspace_trajectory(spokes_num, spoke_length):
-    # create a k-space trajectory
-    KWIC_GOLDENANGLE = (np.sqrt(5) - 1) / 2  # = 111.246117975
-    # M_PI = 3.14159265358979323846
-    # KWIC_GOLDENANGLE = 111.246117975
-    k = ops.linspace(-0.5, 0.5 - 1 / spoke_length, spoke_length)
+    """
+    Generate a 2D radial k-space trajectory with a golden angle pattern.
+
+    Args:
+        spokes_num (int): Number of spokes in the 2D radial trajectory.
+        spoke_length (int): Number of samples along each spoke.
+
+    Returns:
+        torch.Tensor: A 2D k-space trajectory of shape (2, spokes_num, spoke_length).
+    """
+    # Golden angle in radians
+    KWIC_GOLDENANGLE = (np.sqrt(5) - 1) / 2 * np.pi  # Golden angle in radians
+
+    # Create the k-space trajectory for each spoke
+    k = torch.linspace(-0.5, 0.5 - 1 / spoke_length, spoke_length)
     k[spoke_length // 2] = 0
-    A = ops.arange(spokes_num) * ops.pi * KWIC_GOLDENANGLE  # /180
-    kx = ops.outer(ops.cos(A), k)
-    ky = ops.outer(ops.sin(A), k)
-    ktraj = ops.stack((kx, ky), dim=0)
-    # ktraj = ops.complex(kx, ky)
+
+    # Generate the angles for each spoke
+    A = torch.arange(spokes_num) * KWIC_GOLDENANGLE
+
+    # Calculate kx and ky for each spoke
+    kx = torch.outer(torch.cos(A), k)
+    ky = torch.outer(torch.sin(A), k)
+
+    # Stack kx and ky to form the 2D k-space trajectory
+    ktraj = torch.stack((kx, ky), dim=0)
+
+    # Scale by 2*pi to match the k-space units
     return ktraj * 2 * np.pi
+
+
+def generate_golden_angle_stack_of_stars_kspace_trajectory(
+    spokes_num, spoke_length, kz_mask
+):
+    """
+    Generate a 3D stack-of-stars k-space trajectory with a golden angle radial pattern.
+
+    Args:
+        spokes_num (int): Number of spokes in the 2D radial trajectory.
+        spoke_length (int): Number of samples along each spoke.
+        kz_mask (torch.Tensor): A binary mask of shape (slices_num,) indicating which kz-positions are sampled.
+                                A value of 1 means the kz-position is sampled, and 0 means it is not.
+
+    Returns:
+        torch.Tensor: A 3D k-space trajectory of shape (3, kz_num, total_spokes_on_kxky, spoke_length).
+    """
+    # Generate the 2D radial spokes trajectory
+    ktraj_2d = generate_golden_angle_radial_spokes_kspace_trajectory(
+        spokes_num, spoke_length
+    )
+    kz_num = kz_mask.shape[-1]
+    # Generate the kz-axis positions
+    kz_positions = 2 * torch.pi * torch.linspace(-0.5, 0.5, kz_num)
+
+    # Apply the kz_mask to select which z-positions are sampled
+    sampled_z_positions = kz_positions[kz_mask == 1]
+
+    # ktraj_2d_expanded = einx.rearrange(
+    #     "v sp len -> v kz sp len", ktraj_2d, kz=sampled_z_positions.shape[0]
+    # )
+    # kz_expanded = einx.rearrange(
+    #     "kz -> 1 kz spokes len",
+    #     sampled_z_positions,
+    #     spokes=spokes_num,
+    #     len=spoke_length,
+    # )
+
+    # ktraj_3d = torch.cat([ktraj_2d_expanded, kz_expanded], dim=0)
+
+    ktraj_3d = einx.rearrange(
+        "v sp len, kz -> (v + 1) kz sp len", ktraj_2d, sampled_z_positions
+    )
+    return ktraj_3d
 
 
 def data_binning(
