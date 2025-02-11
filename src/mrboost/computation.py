@@ -261,18 +261,6 @@ def generate_golden_angle_stack_of_stars_kspace_trajectory(
     # Apply the kz_mask to select which z-positions are sampled
     sampled_z_positions = kz_positions[kz_mask == 1]
 
-    # ktraj_2d_expanded = einx.rearrange(
-    #     "v sp len -> v kz sp len", ktraj_2d, kz=sampled_z_positions.shape[0]
-    # )
-    # kz_expanded = einx.rearrange(
-    #     "kz -> 1 kz spokes len",
-    #     sampled_z_positions,
-    #     spokes=spokes_num,
-    #     len=spoke_length,
-    # )
-
-    # ktraj_3d = torch.cat([ktraj_2d_expanded, kz_expanded], dim=0)
-
     ktraj_3d = einx.rearrange(
         "v sp len, kz -> (v + 1) kz sp len", ktraj_2d, sampled_z_positions
     )

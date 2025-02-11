@@ -1,13 +1,11 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, Dict, Sequence
 
 import einx
 import numpy as np
 import torch
 from mrboost import computation as comp
-from mrboost.coil_sensitivity_estimation import (
-    get_csm_lowk_xyz,
-)
+from mrboost.coil_sensitivity_estimation import get_csm_lowk_xyz
 from mrboost.density_compensation import (
     ramp_density_compensation,
 )
@@ -17,13 +15,13 @@ from plum import dispatch
 
 @dataclass
 class GoldenAngleArgs(ReconArgs):
-    adjnufft: Callable = field(init=False)
-    nufft: Callable = field(init=False)
+    # adjnufft: Callable = field(init=False)
+    # nufft: Callable = field(init=False)
 
     def __post_init__(self):
         super().__post_init__()
-        self.adjnufft = lambda x, y: comp.nufft_adj_2d(x, y, self.im_size)
-        self.nufft = lambda x, y: comp.nufft_2d(x, y, self.im_size)
+        # self.adjnufft = lambda x, y: comp.nufft_adj_2d(x, y, self.im_size)
+        # self.nufft = lambda x, y: comp.nufft_2d(x, y, self.im_size)
 
 
 @dispatch
@@ -106,4 +104,5 @@ def mcnufft_reconstruct(
         # 2 because of readout_oversampling
     )
     img = einx.sum("[ch] slice w h", img_multi_ch * csm.conj())
+    # img = einx.sum("[ch] slice w h", img_multi_ch * img_multi_ch.conj())
     return img

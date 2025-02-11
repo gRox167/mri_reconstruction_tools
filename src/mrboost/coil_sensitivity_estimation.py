@@ -53,7 +53,7 @@ def get_csm_lowk_xyz(
 ):
     ch, z, sp, spoke_len = kspace_data.shape
     kspace_density_compensation_ = ramp_density_compensation(
-        kspace_traj, im_size, normalize=True
+        kspace_traj, im_size, energy_match_radial_with_cartisian=True
     )
     # kspace_density_compensation_ = comp.kspace_point_to_radial_spokes(
     #     kspace_density_compensation_, spoke_len
@@ -80,7 +80,7 @@ def get_csm_lowk_xyz(
 
     img_sens_SOS = ops.sqrt(einx.sum("[ch] z h w", ops.abs(coil_sens) ** 2))
     coil_sens = coil_sens / img_sens_SOS
-    coil_sens[ops.isnan(coil_sens)] = 0  # optional
+    # coil_sens[ops.isnan(coil_sens)] = 0  # optional
     # coil_sens /= coil_sens.abs().max()
     return coil_sens
 
