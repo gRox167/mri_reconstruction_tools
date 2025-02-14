@@ -22,12 +22,16 @@ from .computation import (
     nufft_2d,
     nufft_adj_2d,
     radial_spokes_to_kspace_point,
+    nufft_2d_batched,
+    nufft_adj_2d_batched,
+    nufft_adj_2d_Inner,
 )
 from .torch_utils import as_real, jax_to_torch, torch_to_jax
 from .type_utils import (
     KspaceSpokesTraj,
     KspaceTraj,
 )
+import concurrent.futures
 
 
 @jit
@@ -60,9 +64,9 @@ def voronoi_density_compensation(
     )
     with jax.default_device(jax.devices("cpu")[0]):
         kspace_traj = torch_to_jax(kspace_traj)
-        # kspace_traj = (
-        #     kspace_traj / jnp.abs(kspace_traj).max() / 2
-        # )  # normalize to -0.5,0.5
+        kspace_traj = (
+            kspace_traj / jnp.abs(kspace_traj).max() / 2
+        )  # normalize to -0.5,0.5
         kspace_traj_unique, reverse_indices = jnp.unique(
             kspace_traj, return_inverse=True, axis=0
         )
@@ -104,6 +108,14 @@ def voronoi_density_compensation(
     # fig = voronoi_plot_2d(vor,show_vertices=False,line_width=0.1,point_size=0.2)
     # plt.show()
 
+def linear_expolate(weights):
+    slope = weights[:,:,2]-weights[:,:,1]
+    b = weights[:,:,1]-slope
+    weights[:,:,0] = b
+    slope1 = weights[:,:,-3]-weights[:,:,-2]
+    b1 = weights[:,:,-2]-slope1
+    weights[:,:,-1] = b1
+    return weights
 
 def pipe_density_compensation(kspace_traj, im_size, *args, **wargs):
     spoke_shape = eo.parse_shape(kspace_traj, "_ spokes_num spoke_len")
@@ -153,9 +165,9 @@ def cihat_pipe_density_compensation(
     return einx.rearrange("(sp l) -> sp l", w, sp=sp, l=l).to(prev_device)
 
 
-@overload
-def ramp_density_compensation(
-    kspace_traj: KspaceTraj,
+
+def ramp_density_compensation_Inner1(
+    kspace_traj: KspaceTraj, # 2 length
     im_size: Sequence[int] = (320, 320),
     normalize: bool = True,
 ):
@@ -174,7 +186,7 @@ def ramp_density_compensation(
         ) #create a [320,320] all 0 matrix
         impulse[im_size[0] // 2, im_size[1] // 2] = 1 # make the center as 1
         wmax = (
-            nufft_adj_2d(
+            nufft_adj_2d_Inner(
                 w * nufft_2d(impulse, kspace_traj, im_size),
                 kspace_traj,
                 im_size,
@@ -186,54 +198,76 @@ def ramp_density_compensation(
     return w / w.abs().max()
 
 
-@overload
-def ramp_density_compensation(
-    kspace_traj: KspaceSpokesTraj,
+def ramp_density_compensation_Inner2(
+    kspace_traj: KspaceSpokesTraj, # 2 sp, len
     im_size: Sequence[int] = (320, 320),
     normalize: bool = True,
     energy_match_radial_with_cartisian: bool = False,
 ):
     _, sp, len = kspace_traj.shape
-    w = ramp_density_compensation(
+    w = ramp_density_compensation_Inner1(
         radial_spokes_to_kspace_point(kspace_traj), im_size, normalize
     ) # get the initial density compensation weights for the transformed trajectory
     w = kspace_point_to_radial_spokes(w, len)
     if energy_match_radial_with_cartisian:
         nyquist_limit_spoke_num = round(np.pi * len // 2) # compute the number of spokes to satisfy the Nyquist limit for radial sampling
         w *= nyquist_limit_spoke_num / sp
-    return w
-
+    return w # dimension = [2, sp, len]
 
 @overload
 def ramp_density_compensation(
-    kspace_traj: Shaped[KspaceTraj, "b"],
+    kspace_traj: KspaceTraj, # 2. sp*len 
     im_size: Sequence[int] = (320, 320),
     normalize: bool = True,
 ):
-    return torch.stack(
-        [
-            ramp_density_compensation(traj, im_size, normalize)
-            for traj in kspace_traj
-        ]
-    )
-
+    w = ramp_density_compensation_Inner1(kspace_traj, im_size, normalize)
+    return w
+            
+@overload
+def ramp_density_compensation(
+    kspace_traj: KspaceSpokesTraj, # 2. sp,len 
+    im_size: Sequence[int] = (320, 320),
+    normalize: bool = False,
+    energy_match_radial_with_cartisian: bool = True,
+):
+    print('A')
+    # kspace_traj = comp.radial_spokes_to_kspace_point(kspace_traj)
+    w = ramp_density_compensation_Inner2(kspace_traj, im_size, normalize,energy_match_radial_with_cartisian)
+    return w
 
 @overload
 def ramp_density_compensation(
-    kspace_traj: Shaped[KspaceSpokesTraj, "b"],
+    kspace_traj: Shaped[KspaceSpokesTraj, "b"], # b. 2. sp*len 
     im_size: Sequence[int] = (320, 320),
     normalize: bool = True,
     energy_match_radial_with_cartisian: bool = False,
 ):
     return torch.stack(
         [
-            ramp_density_compensation(
-                traj, im_size, normalize, energy_match_radial_with_cartisian
-            )
+            ramp_density_compensation_Inner2(traj, im_size, normalize,energy_match_radial_with_cartisian)
             for traj in kspace_traj
         ]
     )
 
+
+############## ty added ##########################
+@overload
+def ramp_density_compensation(
+    kspace_traj: Shaped[KspaceSpokesTraj, "z ch"],#z ch, 2 sp ,len, 
+    im_size: Sequence[int] = (320, 320),
+    normalize: bool = True,
+    energy_match_radial_with_cartisian: bool = False,
+):
+    print("it is me")
+    kspace_traj = einx.rearrange("b... complex sp len -> (b...) complex sp len", kspace_traj) # z*ch, c
+    return torch.stack(
+        [
+            ramp_density_compensation_Inner2(
+                traj, im_size, normalize, energy_match_radial_with_cartisian
+            )
+            for traj in kspace_traj # loop over all the trajectories
+        ]
+    )
 
 @dispatch
 def ramp_density_compensation(
@@ -243,3 +277,46 @@ def ramp_density_compensation(
     **wargs,
 ):
     pass
+def ramp_density_compensation_A(
+    kspace_traj: KspaceSpokesTraj,#2 sp, len, 
+    im_size: Sequence[int] = (320, 320),
+    normalize: bool = True,
+    energy_match_radial_with_cartisian: bool = False,
+):
+    # kspace_traj = einx.rearrange("b... complex sp len -> (b...) complex sp len", kspace_traj) # z*ch, c
+    return torch.stack(
+        [
+            ramp_density_compensation_Inner2(
+                traj, im_size, normalize, energy_match_radial_with_cartisian
+            )
+            for traj in kspace_traj # loop over all the trajectories
+        ]
+    )
+
+
+
+
+def ramp_density_compensation_batched(
+    kspace_traj: Shaped[KspaceSpokesTraj, "z"],#z ch, 2 sp ,len,
+    im_size: Sequence[int] = (320, 320),
+    normalize: bool = True,
+    energy_match_radial_with_cartisian: bool = False,
+    max_workers: int = 4,
+):
+
+    # kspace_traj = einx.rearrange("b... complex sp len -> (b...) complex sp len", kspace_traj)
+    def worker(traj):
+        return ramp_density_compensation_Inner2(    
+            traj,
+            im_size=im_size,
+            normalize=normalize,
+            energy_match_radial_with_cartisian=energy_match_radial_with_cartisian,
+        )
+
+    # 3) Use ThreadPoolExecutor to parallelize over the trajectory batch dimension
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(worker, traj) for traj in kspace_traj]
+        results = [f.result() for f in futures]
+
+    # 4) Stack up the results, shape => [num_trajs, ...]
+    return torch.stack(results, dim=0)

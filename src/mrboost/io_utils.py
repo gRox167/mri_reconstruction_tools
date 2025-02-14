@@ -16,6 +16,24 @@ from einops import parse_shape
 from plum import dispatch, overload
 from xarray import DataArray
 
+def get_raw_data_multiecho(dat_file_location: Path):
+    from twixtools import map_twix, read_twix
+    print("dat_file_location is ",dat_file_location)
+    if not os.path.exists(dat_file_location):
+        raise FileNotFoundError("File not found")
+    twixobj = read_twix(dat_file_location)[-1]
+
+    raw_data = map_twix(twixobj)["image"]
+    # raw_data.flags["remove_os"] = True # will led to warp in radial sampling
+    raw_data = raw_data[:].squeeze()
+    mdh = twixobj["mdb"][1].mdh
+    raw_data = einx.rearrange(
+        "echo par lin cha col -> echo cha par lin col",
+        raw_data,
+    )
+    shape_dict = parse_shape(raw_data, "echo ch_num partition_num spoke_num spoke_len")
+    print(shape_dict)
+    return torch.from_numpy(raw_data), shape_dict, mdh, twixobj
 
 def get_raw_data(dat_file_location: Path):
     from twixtools import map_twix, read_twix
@@ -104,7 +122,6 @@ def to_nifty(
 def to_nifty(img, input_path,output_path, affine=torch.eye(4, dtype=torch.float32)):
     img1 = nib.load(input_path)
     header = img1.header
-    breakpoint()
     nifty_image = nib.Nifti1Image(img, img1.affine, header=header)
     nib.save(nifty_image, output_path)
     print("Writed to: ", output_path)

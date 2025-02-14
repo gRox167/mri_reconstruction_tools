@@ -34,7 +34,7 @@ from .type_utils import (
     KspaceSpokesTraj,
     KspaceTraj,
 )
-
+import concurrent.futures
 
 def batch_process(batch_size: int, device: torch.device, batch_dim=0):
     def Inner(func):
@@ -351,8 +351,8 @@ def generate_nufft_op(image_size):
 
 @overload
 def nufft_2d(
-    images: Shaped[ComplexImage2D, "*channel"],
-    kspace_traj: KspaceTraj,
+    images: Shaped[ComplexImage2D, "*channel"],# *channel h w 
+    kspace_traj: KspaceTraj, # 2 length
     image_size: Sequence[int],
     norm_factor: Number | NoneType = None,
 ) -> Shaped[KspaceData, " *channel"]:
@@ -364,9 +364,81 @@ def nufft_2d(
             images,
             dict(isign=-1, modeord=0),
         )
-        / norm_factor
+        / norm_factor 
     )
 
+
+def nufft_2d_batched(
+    images: Shaped[ComplexImage2D, "..."],
+    kspace_traj: Shaped[KspaceTraj, "... batch"],
+    image_size: Sequence[int],
+    norm_factor: Number | NoneType = None,
+    max_workers: int = 50,
+) -> Shaped[KspaceData, "..."]:
+    """
+    Parallel calls to `nufft_adj_2d` for each item in the batch, using threads.
+    Returns a stacked output of shape [B, ...].
+    
+    Args:
+      kspace_data_batched: batched data, shape [B, ...], each slice is for one sample
+      kspace_traj_batched: shape [B, 2, ...] or [B, ...], each slice for one sample
+      image_size: (H, W)
+      norm_factor: normalization factor
+      max_workers: how many worker threads to run in parallel
+    """
+
+    *batch_shape, _, length = kspace_traj.shape
+    batch_size = np.prod(batch_shape, dtype=int)
+    kspace_traj_batched = kspace_traj.view(-1, 2, length)
+
+    *channel_shape, h, w = images.shape[len(batch_shape) :]
+    images_batched = images.view(batch_size, *channel_shape, h, w)
+    outputs = [None] * batch_size
+
+    def worker(i: int):
+        # Each thread processes one slice:
+        return nufft_adj_2d(
+            images_batched[i],
+            kspace_traj_batched[i],
+            image_size,
+            norm_factor,
+        )
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(worker, i) for i in range(batch_size)]
+        for i, f in enumerate(futures):
+            outputs[i] = f.result()
+
+    # Stack the results
+    return torch.stack(outputs, dim=0)
+
+# def nufft_2d_loss(
+#     images: Shaped[ComplexImage2D, "..."],
+#     kspace_traj: Shaped[KspaceTraj, "... batch"],
+#     image_size: Sequence[int],
+#     norm_factor: Number | NoneType = None,
+# ) -> Shaped[KspaceData, "..."]:
+#     *batch_shape, _, length = kspace_traj.shape
+#     batch_size = np.prod(batch_shape, dtype=int)
+#     kspace_traj_batched = kspace_traj.view(-1, 2, length)
+
+#     *channel_shape, h, w = images.shape[len(batch_shape) :]
+#     images = einx.rearrange("b ch z h w -> b z ch h w", images)
+#     images_batched = images.view(batch_size, *channel_shape, h, w)
+
+#     output = torch.stack(
+#         [
+#             nufft_2d(
+#                 images_batched[i],
+#                 kspace_traj_batched[i],
+#                 image_size,
+#                 norm_factor,
+#             )
+#             for i in range(batch_size)
+#         ],
+#     )
+#     return output.view(*batch_shape, *channel_shape, length)
+        
 
 @overload
 def nufft_2d(
@@ -380,8 +452,7 @@ def nufft_2d(
     kspace_traj_batched = kspace_traj.view(-1, 2, length)
 
     *channel_shape, h, w = images.shape[len(batch_shape) :]
-    images_batched = images.view(batch_size, *channel_shape, h, w)
-
+    images_batched = images.contiguous().view(batch_size, *channel_shape, h, w) # 160, 320,320
     output = torch.stack(
         [
             nufft_2d(
@@ -406,10 +477,9 @@ def nufft_2d(
     pass
 
 
-@overload
-def nufft_adj_2d(
-    kspace_data: Shaped[KspaceData, "*channel"],
-    kspace_traj: KspaceTraj,
+def nufft_adj_2d_Inner(
+    kspace_data: Shaped[KspaceData, "*channel"], # *channel length
+    kspace_traj: KspaceTraj, # 2, sp*leng, 
     image_size: Sequence[int],
     norm_factor: Number | NoneType = None,
 ) -> Shaped[ComplexImage2D, "*channel"]:
@@ -427,33 +497,33 @@ def nufft_adj_2d(
     )
 
 
+
+############# training #################
 @overload
 def nufft_adj_2d(
-    kspace_data: Shaped[KspaceData, "..."],
-    kspace_traj: Shaped[KspaceTraj, "... batch"],
+    kspace_data: Shaped[KspaceData, "z ch"],# ch z leng
+    kspace_traj: Shaped[KspaceTraj, "z ch"], # z ch 2 length
     image_size: Sequence[int],
     norm_factor: Number | NoneType = None,
 ) -> Shaped[ComplexImage2D, "..."]:
-    # ic(kspace_traj.shape)
-    *batch_shape, _, length = kspace_traj.shape
+    ic(kspace_traj.shape)# 5, 48,2 length
+    ic(kspace_data.shape)
+    *batch_shape, _, length = kspace_traj.shape # * batch_shape = z, ch; _ = 2, length = length
     batch_size = np.prod(batch_shape, dtype=int)
-
+    ic(batch_size) # 160
     kspace_traj_batched = einx.rearrange(
         "b... comp len -> (b...) comp len", kspace_traj
     )
-
-    *channel_shape, length = kspace_data.shape[len(batch_shape) :]
-    kspace_data_batched = kspace_data.view(batch_size, *channel_shape, length)
-    # concatenate list of str
-    # ch_axes = "".join([f"ch_{i} " for i in range(len(channel_shape))])
-    # kspace_data_batched = einx.rearrange(
-    #     f"b... {ch_axes}len -> (b...) {ch_axes}len", kspace_data
-    # )
+    
+    *channel_shape, length = kspace_data.shape[len(batch_shape) :] # kspace_data.shape[2 :]
+    # kspace_data = einx.rearrange("ch z len -> z ch len", kspace_data)
+    kspace_data_batched = kspace_data.contiguous().view(batch_size, *channel_shape, length)
+    ic(kspace_data_batched.shape)
     output = torch.stack(
         [
-            nufft_adj_2d(
+            nufft_adj_2d_Inner(
                 kspace_data_batched[i],
-                kspace_traj_batched[i],
+                kspace_traj_batched[i], ### only loop slice dimension 
                 tuple(image_size),
                 norm_factor,
             )
@@ -475,6 +545,59 @@ def nufft_adj_2d(
 ):
     pass
 
+########### testing ############
+def nufft_adj_2d_batched(
+    kspace_data: torch.Tensor,  # shape: [B, ...]
+    kspace_traj: torch.Tensor,  # shape: [B, 2, num_points], etc.
+    image_size: Sequence[int],
+    norm_factor: Number | NoneType= None,
+    max_workers: int = 50,
+) -> torch.Tensor:
+    """
+    Parallel calls to `nufft_adj_2d` for each item in the batch, using threads.
+    Returns a stacked output of shape [B, ...].
+    
+    Args:
+      kspace_data_batched: batched data, shape [B, ...], each slice is for one sample
+      kspace_traj_batched: shape [B, 2, ...] or [B, ...], each slice for one sample
+      image_size: (H, W)
+      norm_factor: normalization factor
+      max_workers: how many worker threads to run in parallel
+    """
+
+    # kspace_data_batched = einx.rearrange("ch z len -> z ch len", kspace_data)
+    
+    ic(kspace_traj.shape)# 5, 48,2 length
+    ic(kspace_data.shape)
+    *batch_shape, _, length = kspace_traj.shape # * batch_shape = z, ch; _ = 2, length = length
+    batch_size = np.prod(batch_shape, dtype=int)
+    ic(batch_size) # 160
+    outputs = [None] * batch_size
+    kspace_traj_batched = einx.rearrange(
+        "b... comp len -> (b...) comp len", kspace_traj
+    )
+    
+    *channel_shape, length = kspace_data.shape[len(batch_shape) :] # kspace_data.shape[2 :]
+    # kspace_data = einx.rearrange("ch z len -> z ch len", kspace_data)
+    kspace_data_batched = kspace_data.contiguous().view(batch_size, *channel_shape, length)
+    ic(kspace_data_batched.shape)
+    
+    def worker(i: int):
+        # Each thread processes one slice:
+        return nufft_adj_2d_Inner(
+            kspace_data_batched[i], # ch sp*len
+            kspace_traj_batched[i],#2 sp*len
+            image_size,
+            norm_factor,
+        )
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(worker, i) for i in range(batch_size)]
+        for i, f in enumerate(futures):
+            outputs[i] = f.result()
+
+    # Stack the results
+    return einx.rearrange("(b...) ch... h w -> b... ch... h w", torch.stack(outputs, dim=0), b = batch_shape)
 
 def radial_spokes_to_kspace_point(
     x: Shaped[KspaceSpokesData, "..."] | Shaped[KspaceSpokesTraj, "..."],

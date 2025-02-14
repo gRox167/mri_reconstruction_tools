@@ -107,8 +107,9 @@ def mcnufft_reconstruct(
         csm_lowk_hamming_ratio,
         # recon_args.device,
     ) #3d coil sensitivity map
+    
     kspace_density_compensation = density_compensation_func(
-        kspace_traj,
+        kspace_traj, # 2 sp, length
         im_size=recon_args.im_size,
         normalize=False,
         energy_match_radial_with_cartisian=True,
@@ -120,7 +121,7 @@ def mcnufft_reconstruct(
     )
 
     kspace_data_z = comp.ifft_1D(kspace_data_centralized, dim=1, norm="ortho")
-    img_multi_ch = comp.nufft_adj_2d(
+    img_multi_ch = comp.nufft_adj_2d_Inner(
         kspace_data_z * kspace_density_compensation,
         kspace_traj,
         recon_args.im_size,
