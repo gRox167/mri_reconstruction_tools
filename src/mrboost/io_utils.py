@@ -23,7 +23,7 @@ def torch_to_nii_direction(data):
 
 def plot_3D(image, vmin=None, vmax=None, location=(0, 0, 0)):
     z, y, x = location
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    fig, axes = plt.subplots(1, 3, figsize=(30, 10))
 
     axes[0].imshow(image[z, :, :], cmap="gray", vmin=vmin, vmax=vmax)
     axes[0].title.set_text("Axial")

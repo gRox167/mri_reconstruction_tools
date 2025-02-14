@@ -1,10 +1,11 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Dict, Sequence
 
 import einx
 import numpy as np
 import torch
 from mrboost import computation as comp
+from mrboost.bias_field_correction import n4_bias_field_correction_3d_complex
 from mrboost.coil_sensitivity_estimation import get_csm_lowk_xyz
 from mrboost.density_compensation import (
     ramp_density_compensation,
@@ -15,13 +16,14 @@ from plum import dispatch
 
 @dataclass
 class GoldenAngleArgs(ReconArgs):
-    # adjnufft: Callable = field(init=False)
-    # nufft: Callable = field(init=False)
+    csm_lowk_hamming_ratio: Sequence[float] = field(default=(0.05, 0.05))
+    density_compensation_func: Callable = field(default=ramp_density_compensation)
+    bias_field_correction: bool = field(default=False)
+    return_csm: bool = field(default=False)
+    return_multi_channel_image: bool = field(default=False)
 
     def __post_init__(self):
         super().__post_init__()
-        # self.adjnufft = lambda x, y: comp.nufft_adj_2d(x, y, self.im_size)
-        # self.nufft = lambda x, y: comp.nufft_2d(x, y, self.im_size)
 
 
 @dispatch
@@ -32,6 +34,7 @@ def preprocess_raw_data(
     kspace_traj = comp.generate_golden_angle_radial_spokes_kspace_trajectory(
         kspace_raw_data.shape[2], recon_args.spoke_len
     )
+
     if recon_args.partial_fourier_flag:
         kspace_data_centralized, kspace_data_mask = comp.centralize_kspace(
             kspace_data=kspace_raw_data,
@@ -66,26 +69,79 @@ def preprocess_raw_data(
 def mcnufft_reconstruct(
     data_preprocessed: Dict[str, torch.Tensor],
     recon_args: GoldenAngleArgs,
-    csm_lowk_hamming_ratio: Sequence[float] = [0.03, 0.03],
-    density_compensation_func: Callable = ramp_density_compensation,
-    discard_first_n_spokes: int = 5,
     *args,
     **kwargs,
 ):
     kspace_data_centralized, kspace_data_z, kspace_traj = (
-        data_preprocessed["kspace_data_centralized"][:, :, discard_first_n_spokes:],
-        data_preprocessed["kspace_data_z"][:, :, discard_first_n_spokes:],
-        data_preprocessed["kspace_traj"][:, discard_first_n_spokes:],
+        data_preprocessed["kspace_data_centralized"][
+            :, :, recon_args.start_spokes_to_discard :, :
+        ],
+        data_preprocessed["kspace_data_z"][
+            :, :, recon_args.start_spokes_to_discard :, :
+        ],
+        data_preprocessed["kspace_traj"][:, recon_args.start_spokes_to_discard :, :],
     )
 
     csm = get_csm_lowk_xyz(
         kspace_data_centralized,
         kspace_traj,
         recon_args.im_size,
-        csm_lowk_hamming_ratio,
+        recon_args.csm_lowk_hamming_ratio,
     )
 
-    kspace_density_compensation = density_compensation_func(
+    kspace_density_compensation = recon_args.density_compensation_func(
+        kspace_traj,
+        im_size=recon_args.im_size,
+        normalize=False,
+        energy_match_radial_with_cartisian=True,
+    )
+    kspace_density_compensation[:, 320] = kspace_density_compensation[:, 319]
+    print(kspace_density_compensation[4, 319:321])
+    kspace_data = comp.radial_spokes_to_kspace_point(
+        kspace_data_z * kspace_density_compensation
+    )
+    kspace_traj = comp.radial_spokes_to_kspace_point(kspace_traj)
+
+    img_multi_ch = comp.nufft_adj_2d(
+        kspace_data,
+        kspace_traj,
+        recon_args.im_size,
+        norm_factor=2 * np.sqrt(np.prod(recon_args.im_size)),
+        # 2 because of readout_oversampling
+    )
+    img = einx.sum("[ch] slice w h", img_multi_ch * csm.conj())
+    # img = einx.sum("[ch] slice w h", img_multi_ch * img_multi_ch.conj())
+
+    if recon_args.bias_field_correction:
+        img = n4_bias_field_correction_3d_complex(img)
+
+    return_dict = {"image": img}
+    if recon_args.return_csm:
+        return_dict["csm"] = csm
+    if recon_args.return_multi_channel_image:
+        return_dict["image_multi_ch"] = img_multi_ch
+
+    if len(return_dict) == 1:
+        return return_dict["image"]
+    else:
+        return return_dict
+
+
+@dispatch
+def SoS_nufft_reconstruct(
+    data_preprocessed: Dict[str, torch.Tensor],
+    recon_args: GoldenAngleArgs,
+    *args,
+    **kwargs,
+):
+    kspace_data_z, kspace_traj = (
+        data_preprocessed["kspace_data_z"][
+            :, :, recon_args.start_spokes_to_discard :, :
+        ],
+        data_preprocessed["kspace_traj"][:, recon_args.start_spokes_to_discard :, :],
+    )
+
+    kspace_density_compensation = recon_args.density_compensation_func(
         kspace_traj,
         im_size=recon_args.im_size,
         normalize=False,
@@ -103,6 +159,14 @@ def mcnufft_reconstruct(
         norm_factor=2 * np.sqrt(np.prod(recon_args.im_size)),
         # 2 because of readout_oversampling
     )
-    img = einx.sum("[ch] slice w h", img_multi_ch * csm.conj())
+    img = einx.sum("[ch] slice w h", img_multi_ch * img_multi_ch.conj())
     # img = einx.sum("[ch] slice w h", img_multi_ch * img_multi_ch.conj())
-    return img
+
+    return_dict = {"image": img}
+    if recon_args.return_multi_channel_image:
+        return_dict["image_multi_ch"] = img_multi_ch
+
+    if len(return_dict) == 1:
+        return return_dict["image"]
+    else:
+        return return_dict

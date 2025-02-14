@@ -4,16 +4,10 @@ from typing import Sequence
 
 import einx
 import numpy as np
-
-# import numpy as np
 import scipy
 import torch
-
-# from keras import ops
 import torch as ops
 import torch.nn.functional as F
-
-# from einops import rearrange, reduce, repeat
 from jaxtyping import Shaped
 from plum import dispatch, overload
 from pytorch_finufft.functional import (
@@ -161,7 +155,7 @@ def centralize_kspace(
     # center_in_acquire_length is index, here +1 to turn into quantity
     front_padding = round(full_length / 2 - (center_idx_in_acquire_lenth + 1))
     # the dc point can be located at length/2 or length/2+1, when length is even, cihat use length/2+1
-    front_padding += 1
+    # front_padding += 1
     pad_length = [0 for i in range(2 * len(kspace_data.shape))]
     pad_length[dim * 2 + 1], pad_length[dim * 2] = (
         front_padding,
@@ -218,8 +212,10 @@ def generate_golden_angle_radial_spokes_kspace_trajectory(spokes_num, spoke_leng
     KWIC_GOLDENANGLE = (np.sqrt(5) - 1) / 2 * np.pi  # Golden angle in radians
 
     # Create the k-space trajectory for each spoke
-    k = torch.linspace(-0.5, 0.5 - 1 / spoke_length, spoke_length)
-    k[spoke_length // 2] = 0
+    # k = torch.linspace(-0.5, 0.5 - 1 / spoke_length, spoke_length)
+    # k[spoke_length // 2] = 0
+    # k = torch.linspace(-0.5, 0.5, spoke_length)
+    k = torch.arange(spoke_length) / spoke_length - 0.5
 
     # Generate the angles for each spoke
     A = torch.arange(spokes_num) * KWIC_GOLDENANGLE
@@ -256,7 +252,8 @@ def generate_golden_angle_stack_of_stars_kspace_trajectory(
     )
     kz_num = kz_mask.shape[-1]
     # Generate the kz-axis positions
-    kz_positions = 2 * torch.pi * torch.linspace(-0.5, 0.5, kz_num)
+    kz_positions = 2 * torch.pi * (torch.arange(kz_num) / kz_num - 0.5)
+    # kz_positions = 2 * torch.pi * torch.linspace(-0.5, 0.5, kz_num)
 
     # Apply the kz_mask to select which z-positions are sampled
     sampled_z_positions = kz_positions[kz_mask == 1]
@@ -396,9 +393,10 @@ def nufft_2d(
 ) -> Shaped[KspaceData, " *channel"]:
     if norm_factor is None:
         norm_factor = np.sqrt(np.prod(image_size))
+
     return (
         FinufftType2.apply(
-            kspace_traj,
+            kspace_traj.flip(0),
             images,
             dict(isign=-1, modeord=0),
         )
@@ -455,7 +453,7 @@ def nufft_3d(
         norm_factor = np.sqrt(np.prod(image_size))
     return (
         FinufftType2.apply(
-            kspace_traj,
+            kspace_traj.flip(0),
             images,
             dict(isign=-1, modeord=0),
         )
@@ -512,7 +510,7 @@ def nufft_adj_2d(
         norm_factor = np.sqrt(np.prod(image_size))
     return (
         FinufftType1.apply(
-            kspace_traj,
+            kspace_traj.flip(0),
             kspace_data,
             tuple(image_size),
             dict(isign=1, modeord=0),
@@ -573,7 +571,7 @@ def nufft_adj_3d(
         norm_factor = np.sqrt(np.prod(image_size))
     return (
         FinufftType1.apply(
-            kspace_traj,
+            kspace_traj.flip(0),
             kspace_data,
             tuple(image_size),
             dict(isign=1, modeord=0),

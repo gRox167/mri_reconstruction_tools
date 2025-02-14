@@ -203,7 +203,10 @@ def test_generate_golden_angle_stack_of_stars_kspace_trajectory():
     ), "Shape mismatch for 3D stack-of-stars trajectory"
 
     # Test case 2: Check that the kz-axis positions are correctly applied
-    kz_positions = 2 * torch.pi * torch.linspace(-0.5, 0.5, kz_mask.shape[-1])
+    # kz_positions = 2 * torch.pi * torch.linspace(-0.5, 0.5, kz_mask.shape[-1])
+    kz_positions = (
+        2 * torch.pi * (torch.arange(kz_mask.shape[-1]) / kz_mask.shape[-1] - 0.5)
+    )
     sampled_z_positions = kz_positions[kz_mask == 1]
     for i, z in enumerate(sampled_z_positions):
         assert torch.allclose(

@@ -44,7 +44,8 @@ class ReconArgs:
         else:
             self.slice_num = round(self.twixobj["hdr"]["Meas"]["lImagesPerSlab"])
 
-        self.amplitude_scale_factor = 80 * 20 * 131072 / 65536 * 20000
+        # self.amplitude_scale_factor = 80 * 20 * 131072 / 65536 * 20000
+        self.amplitude_scale_factor = 80 * 20 * 131072 / 65536
 
         self.ch_num = self.shape_dict["ch_num"]
         self.partition_num = self.shape_dict["partition_num"]
