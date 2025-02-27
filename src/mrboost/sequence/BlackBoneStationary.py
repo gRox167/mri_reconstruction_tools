@@ -83,8 +83,8 @@ def mcnufft_reconstruct_partial(
     )
     #print('img_multi_ch')
     img = einx.sum("[ch] slice w h", img_multi_ch * csm.conj())
-    # return img, csm,img_multi_ch
-    return img
+    return img, csm,img_multi_ch
+    #return img
 
 @dispatch
 def mcnufft_reconstruct(

@@ -535,6 +535,40 @@ def nufft_adj_2d(
     )
     # return output.view(*batch_shape, *channel_shape, *image_size)
 
+@overload
+def nufft_adj_2d(
+    kspace_data: Shaped[KspaceData, "ch z"],# ch z leng
+    kspace_traj: KspaceTraj, # z ch 2 length
+    image_size: Sequence[int],
+    norm_factor: Number | NoneType = None,
+) -> Shaped[ComplexImage2D, "..."]:
+    ic(kspace_traj.shape)# 5, 48,2 length
+    ic(kspace_data.shape)
+    *batch_shape, _, length = kspace_traj.shape # * batch_shape = z, ch; _ = 2, length = length
+    batch_size = np.prod(batch_shape, dtype=int)
+    ic(batch_size) # 160
+    kspace_traj_batched = einx.rearrange(
+        "b... comp len -> (b...) comp len", kspace_traj
+    )
+    
+    *channel_shape, length = kspace_data.shape[len(batch_shape) :] # kspace_data.shape[2 :]
+    # kspace_data = einx.rearrange("ch z len -> z ch len", kspace_data)
+    kspace_data_batched = kspace_data.contiguous().view(batch_size, *channel_shape, length)
+    ic(kspace_data_batched.shape)
+    output = torch.stack(
+        [
+            nufft_adj_2d_Inner(
+                kspace_data_batched[i],
+                kspace_traj_batched[i], ### only loop slice dimension 
+                tuple(image_size),
+                norm_factor,
+            )
+            for i in range(batch_size)
+        ],
+    )
+    return einx.rearrange(
+        "(b...) ch... h w -> b... ch... h w", output, b=batch_shape
+    )
 
 @dispatch
 def nufft_adj_2d(
