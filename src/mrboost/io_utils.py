@@ -35,9 +35,29 @@ def get_raw_data_multiecho(dat_file_location: Path):
     print(shape_dict)
     return torch.from_numpy(raw_data), shape_dict, mdh, twixobj
 
-def get_raw_data(dat_file_location: Path):
+def torch_to_nii_direction(data):
+    return einx.rearrange("d h w -> h w d", data.flip(0, 1))
+
+
+def plot_3D(image, vmin=None, vmax=None, location=(0, 0, 0)):
+    z, y, x = location
+    fig, axes = plt.subplots(1, 3, figsize=(30, 10))
+
+    axes[0].imshow(image[z, :, :], cmap="gray", vmin=vmin, vmax=vmax)
+    axes[0].title.set_text("Axial")
+    axes[1].imshow(image[:, y, :], cmap="gray", vmin=vmin, vmax=vmax)
+    axes[1].title.set_text("Coronal")
+    axes[2].imshow(image[:, :, x], cmap="gray", vmin=vmin, vmax=vmax)
+    axes[2].title.set_text("Sagittal")
+    for ax in axes:
+        ax.axis("off")
+    return fig, axes
+
+
+def get_raw_data(dat_file_location: Path, multi_echo=False):
     from twixtools import map_twix, read_twix
-    print("dat_file_location is ",dat_file_location)
+
+    print("dat_file_location is ", dat_file_location)
     if not os.path.exists(dat_file_location):
         raise FileNotFoundError("File not found")
     twixobj = read_twix(dat_file_location)[-1]
@@ -51,13 +71,20 @@ def get_raw_data(dat_file_location: Path):
     # twixobj = twixobj[-1]
     # except KeyError:
     #     self.twixobj = twixobj
-    # twixobj.image.squeeze = True
-    # twixobj.image.flagRemoveOS = False
-    raw_data = einx.rearrange(
-        "par lin cha col -> cha par lin col",
-        raw_data,
-    )
-    shape_dict = parse_shape(raw_data, "ch_num partition_num spoke_num spoke_len")
+    if multi_echo:
+        raw_data = einx.rearrange(
+            "echo par lin cha col -> echo cha par lin col",
+            raw_data,
+        )
+        shape_dict = parse_shape(
+            raw_data, "echo_num ch_num partition_num spoke_num spoke_len"
+        )
+    else:
+        raw_data = einx.rearrange(
+            "par lin cha col -> cha par lin col",
+            raw_data,
+        )
+        shape_dict = parse_shape(raw_data, "ch_num partition_num spoke_num spoke_len")
     print(shape_dict)
     return torch.from_numpy(raw_data), shape_dict, mdh, twixobj
 

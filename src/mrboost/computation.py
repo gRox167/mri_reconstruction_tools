@@ -3,10 +3,10 @@ from types import NoneType
 from typing import Sequence
 
 import einx
-
-# import numpy as np
+import numpy as np
 import scipy
 import torch
+import torch as ops
 import torch.nn.functional as F
 
 # from juliacall import Main as jl
@@ -20,19 +20,20 @@ from plum import dispatch, overload
 from pytorch_finufft.functional import (
     FinufftType1,
     FinufftType2,
-    finufft_type1,
-    finufft_type2,
 )
-from torch.fft import fft, fftshift, ifft, ifftshift
+from torch import Tensor
+from torch.fft import fft, fft2, fftn, fftshift, ifft, ifft2, ifftn, ifftshift
 from tqdm import tqdm
 
-from .io_utils import *
+# from .io_utils import *
 from .type_utils import (
     ComplexImage2D,
+    ComplexImage3D,
     KspaceData,
     KspaceSpokesData,
     KspaceSpokesTraj,
     KspaceTraj,
+    KspaceTraj3D,
 )
 import concurrent.futures
 
@@ -44,15 +45,11 @@ def batch_process(batch_size: int, device: torch.device, batch_dim=0):
                 (k, v.to(device)) if isinstance(v, torch.Tensor) else (k, v)
                 for k, v in kwargs.items()
             )
-            args_batched = [
-                torch.split(data, batch_size, batch_dim) for data in args
-            ]
+            args_batched = [torch.split(data, batch_size, batch_dim) for data in args]
             print(args_batched[0][0].shape)
             batch_num = len(args_batched[0])
             for batch_idx in tqdm(range(batch_num)):
-                args_input = (
-                    data[batch_idx].to(device) for data in args_batched
-                )
+                args_input = (data[batch_idx].to(device) for data in args_batched)
                 outputs.append(func(*args_input, **kwargs_input).cpu())
             outputs = torch.cat(outputs, dim=batch_dim)
             for k, v in kwargs_input.items():
@@ -97,9 +94,9 @@ def tuned_and_robust_estimation(
 
     # To reduce noise, the navigator k-space data were apodized using a Hamming window.
     W = hamming_filter(percentW / 100, col_num)
-    W = repeat(
-        W,
+    W = einx.rearrange(
         "col_num -> col_num line_num ch_num",
+        W,
         line_num=line_num,
         ch_num=ch_num,
     )
@@ -118,26 +115,20 @@ def tuned_and_robust_estimation(
     phase_rotation_factors = torch.exp(
         -1j * 2 * torch.pi * torch.arange(1, 101, device=f.device) / 100
     )
-    r = torch.empty(
-        (projections.shape[1], projections.shape[2], 100), device=f.device
-    )
+    r = torch.empty((projections.shape[1], projections.shape[2], 100), device=f.device)
     for m in range(100):
         r[:, :, m] = torch.argmax(
             (phase_rotation_factors[m] * projections[:, :, :]).real, dim=0
         )
     # A = torch.einsum('xni,m->xnim',projections,phase_rotation_factors).real # np.multiply.outer(projections, phase_rorate..)
     # r = torch.argmax(A,dim=0).to(torch.double)+1 # 'x n i m -> n i m'
-    R = torch.abs(
-        fftshift(fft(r - reduce(r, "n i m -> i m", "mean"), dim=0), dim=0)
-    )
+    R = torch.abs(fftshift(fft(r - einx.mean("n i m ->i m", r), dim=0), dim=0))
 
-    lowfreq_integral = reduce(
-        R[(torch.abs(f) < 0.5) * (torch.abs(f) > 0.1)], "f i m -> i m", "sum"
+    lowfreq_integral = einx.sum(
+        "f i m -> i m", R[(torch.abs(f) < 0.5) * (torch.abs(f) > 0.1)]
     )
-    highfreq_integral = reduce(R[torch.abs(f) > 0.8], "f i m -> i m", "sum")
-    r_range = reduce(r, "n i m -> i m", "max") - reduce(
-        r, "n i m -> i m", "min"
-    )
+    highfreq_integral = einx.sum("f i m -> i m", R[torch.abs(f) > 0.8])
+    r_range = einx.max("n i m -> i m", r).values - einx.min("n i m -> i m", r).values
     lower_bound = torch.full_like(r_range, 30 / (FOV / (ndata / 2)))
     # what does this FOV/ndata use for
     determinator = torch.maximum(r_range, lower_bound)
@@ -150,14 +141,10 @@ def tuned_and_robust_estimation(
     # new quality metric block end
 
     # filter high frequency signal
-    b = scipy.signal.firwin(
-        12, 1 / (Fs / 2), window="hamming", pass_zero="lowpass"
-    )
+    b = scipy.signal.firwin(12, 1 / (Fs / 2), window="hamming", pass_zero="lowpass")
     a = 1
     r_max_low_pass = scipy.signal.filtfilt(b, a, r_max)
-    r_max_SG = scipy.signal.filtfilt(
-        b, a, scipy.signal.savgol_filter(r_max, 5, 1)
-    )
+    r_max_SG = scipy.signal.filtfilt(b, a, scipy.signal.savgol_filter(r_max, 5, 1))
     r_max_filtered = r_max_low_pass.copy()
     r_max_filtered[0:10], r_max_filtered[-10:] = r_max_SG[0:10], r_max_SG[-10:]
 
@@ -170,7 +157,7 @@ def centralize_kspace(
     # center_in_acquire_length is index, here +1 to turn into quantity
     front_padding = round(full_length / 2 - (center_idx_in_acquire_lenth + 1))
     # the dc point can be located at length/2 or length/2+1, when length is even, cihat use length/2+1
-    front_padding += 1
+    # front_padding += 1
     pad_length = [0 for i in range(2 * len(kspace_data.shape))]
     pad_length[dim * 2 + 1], pad_length[dim * 2] = (
         front_padding,
@@ -179,10 +166,8 @@ def centralize_kspace(
     pad_length.reverse()
     # torch.nn.functional.pad() are using pad_lenth in a inverse way.
     # (pad_front for axis -1,pad_back for axis -1, pad_front for axis -2, pad_back for axis-2 ......)
-    kspace_data_mask = torch.ones(kspace_data.shape, dtype=torch.bool)
-    kspace_data_mask = F.pad(
-        kspace_data_mask, pad_length, mode="constant", value=False
-    )
+    kspace_data_mask = ops.ones(kspace_data.shape, dtype=ops.bool)
+    kspace_data_mask = F.pad(kspace_data_mask, pad_length, mode="constant", value=False)
     kspace_data_ = F.pad(
         kspace_data, pad_length, mode="constant"
     )  # default constant is 0
@@ -190,31 +175,95 @@ def centralize_kspace(
     return kspace_data_, kspace_data_mask
 
 
-def ifft_1D(kspace_data, dim=-1, norm="ortho"):
-    return fftshift(
-        ifft(ifftshift(kspace_data, dim=dim), dim=dim, norm=norm), dim=dim
-    )
+def ifft_1D(kspace_data: Tensor, dim=-1, norm="ortho") -> Tensor:
+    return fftshift(ifft(ifftshift(kspace_data, dim=dim), dim=dim, norm=norm), dim=dim)
 
 
-def fft_1D(image_data, dim=-1, norm="ortho"):
-    return ifftshift(
-        fft(fftshift(image_data, dim=dim), dim=dim, norm=norm), dim=dim
-    )
+def fft_1D(image_data: Tensor, dim=-1, norm="ortho") -> Tensor:
+    return ifftshift(fft(fftshift(image_data, dim=dim), dim=dim, norm=norm), dim=dim)
 
 
-def generate_golden_angle_radial_spokes_kspace_trajectory(
-    spokes_num, spoke_length
-):
-    # create a k-space trajectory
-    KWIC_GOLDENANGLE = (np.sqrt(5) - 1) / 2  # radian *180 = 111.246117975
-    k = torch.linspace(-0.5, 0.5 - 1 / spoke_length, spoke_length) #[start:end:step] create one-d array start from -0.5,and contains 640 steps.
-    k[spoke_length // 2] = 0 # make the center point to be 0
-    A = torch.arange(spokes_num) * torch.pi * KWIC_GOLDENANGLE  # /180 #create the angle of each spoke
-    kx = torch.outer(torch.cos(A), k) #outer product: cos(A) by k, #sampling cosine function
+def ifft_2D(kspace_data: Tensor, dim=(-2, -1), norm="ortho") -> Tensor:
+    return fftshift(ifft2(ifftshift(kspace_data, dim=dim), dim=dim, norm=norm), dim=dim)
+
+
+def fft_2D(image_data: Tensor, dim=(-2, -1), norm="ortho") -> Tensor:
+    return ifftshift(fft2(fftshift(image_data, dim=dim), dim=dim, norm=norm), dim=dim)
+
+
+def ifft_nD(kspace_data: Tensor, dim=(-3, -2, -1), norm="ortho") -> Tensor:
+    return fftshift(ifftn(ifftshift(kspace_data, dim=dim), dim=dim, norm=norm), dim=dim)
+
+
+def fft_nD(image_data: Tensor, dim=(-3, -2, -1), norm="ortho") -> Tensor:
+    return ifftshift(fftn(fftshift(image_data, dim=dim), dim=dim, norm=norm), dim=dim)
+
+
+def generate_golden_angle_radial_spokes_kspace_trajectory(spokes_num, spoke_length):
+    """
+    Generate a 2D radial k-space trajectory with a golden angle pattern.
+
+    Args:
+        spokes_num (int): Number of spokes in the 2D radial trajectory.
+        spoke_length (int): Number of samples along each spoke.
+
+    Returns:
+        torch.Tensor: A 2D k-space trajectory of shape (2, spokes_num, spoke_length).
+    """
+    # Golden angle in radians
+    KWIC_GOLDENANGLE = (np.sqrt(5) - 1) / 2 * np.pi  # Golden angle in radians
+
+    # Create the k-space trajectory for each spoke
+    # k = torch.linspace(-0.5, 0.5 - 1 / spoke_length, spoke_length)
+    # k[spoke_length // 2] = 0
+    # k = torch.linspace(-0.5, 0.5, spoke_length)
+    k = torch.arange(spoke_length) / spoke_length - 0.5
+
+    # Generate the angles for each spoke
+    A = torch.arange(spokes_num) * KWIC_GOLDENANGLE
+
+    # Calculate kx and ky for each spoke
+    kx = torch.outer(torch.cos(A), k)
     ky = torch.outer(torch.sin(A), k)
+
+    # Stack kx and ky to form the 2D k-space trajectory
     ktraj = torch.stack((kx, ky), dim=0)
-    # ktraj = torch.complex(kx, ky)
-    return ktraj * 2 * torch.pi 
+
+    # Scale by 2*pi to match the k-space units
+    return ktraj * 2 * np.pi
+
+
+def generate_golden_angle_stack_of_stars_kspace_trajectory(
+    spokes_num, spoke_length, kz_mask
+):
+    """
+    Generate a 3D stack-of-stars k-space trajectory with a golden angle radial pattern.
+
+    Args:
+        spokes_num (int): Number of spokes in the 2D radial trajectory.
+        spoke_length (int): Number of samples along each spoke.
+        kz_mask (torch.Tensor): A binary mask of shape (slices_num,) indicating which kz-positions are sampled.
+                                A value of 1 means the kz-position is sampled, and 0 means it is not.
+
+    Returns:
+        torch.Tensor: A 3D k-space trajectory of shape (3, kz_num, total_spokes_on_kxky, spoke_length).
+    """
+    # Generate the 2D radial spokes trajectory
+    ktraj_2d = generate_golden_angle_radial_spokes_kspace_trajectory(
+        spokes_num, spoke_length
+    )
+    kz_num = kz_mask.shape[-1]
+    # Generate the kz-axis positions
+    kz_positions = 2 * torch.pi * (torch.arange(kz_num) / kz_num - 0.5)
+    # kz_positions = 2 * torch.pi * torch.linspace(-0.5, 0.5, kz_num)
+
+    # Apply the kz_mask to select which z-positions are sampled
+    sampled_z_positions = kz_positions[kz_mask == 1]
+
+    ktraj_3d = einx.rearrange(
+        "v sp len, kz -> (v + 1) kz sp len", ktraj_2d, sampled_z_positions
+    )
+    return ktraj_3d
 
 
 def data_binning(
@@ -226,78 +275,90 @@ def data_binning(
     spokes_per_phase,
 ):
     spoke_len = data.shape[-1]
-    output = rearrange(
+
+    output = einx.get_at(  # sp_t=n
+        "... (t [sp_t]) spoke_len, t n -> ... t n spoke_len",
         data,
-        "... (t spokes_per_contra) spoke_len -> ... t spokes_per_contra spoke_len ",
+        sorted_r_idx,
         t=contrast_num,
-        spokes_per_contra=spokes_per_contra,
+        # sp_t=spokes_per_contra,
+        spoke_len=spoke_len,
     )
-    # print(output.shape, sorted_r_idx.shape)
-    output = output.gather(
-        dim=-2,
-        index=repeat(
-            sorted_r_idx,
-            "t spokes_per_contra -> t spokes_per_contra spoke_len",
-            spokes_per_contra=spokes_per_contra,
-            spoke_len=spoke_len,
-        ).expand_as(output),
-    )
-    output = rearrange(
-        output,
+    return einx.rearrange(
         "... t (ph spoke) spoke_len -> t ph ...  spoke spoke_len",
+        output,
         ph=phase_num,
         spoke=spokes_per_phase,
     )
-    return output
+
+    # output = einx.rearrange(
+    #     "... (t spokes_per_contra) spoke_len -> ... t spokes_per_contra spoke_len ",
+    #     data,
+    #     t=contrast_num,
+    #     spokes_per_contra=spokes_per_contra,
+    # )
+    # output = output.gather(
+    #     dim=-2,
+    #     index=einx.repeat(
+    #         "t spokes_per_contra -> t spokes_per_contra spoke_len",
+    #         sorted_r_idx,
+    #         spokes_per_contra=spokes_per_contra,
+    #         spoke_len=spoke_len,
+    #     ).expand_as(output),
+    # )
+    # output = rearrange(
+    #     output,
+    #     "... t (ph spoke) spoke_len -> t ph ...  spoke spoke_len",
+    #     ph=phase_num,
+    #     spoke=spokes_per_phase,
+    # )
+    # return output
 
 
 def data_binning_phase(data, sorted_r_idx, phase_num, spokes_per_phase):
     spoke_len = data.shape[-1]
-    output = data.gather(
-        dim=-2,
-        index=repeat(
-            sorted_r_idx, "spoke -> spoke spoke_len", spoke_len=spoke_len
-        ).expand_as(data),
-    )
-    output = rearrange(
-        output,
-        "...  (ph spoke) spoke_len -> ph ...  spoke spoke_len",
+    return einx.get_at(
+        "... ([ph spoke]) spoke_len, ([ph spoke]) -> ph ... spoke spoke_len",
+        data,
+        sorted_r_idx,
         ph=phase_num,
         spoke=spokes_per_phase,
+        spoke_len=spoke_len,
     )
-    return output
+
+    # output = data.gather(
+    #     dim=-2,
+    #     index=repeat(
+    #         sorted_r_idx, "spoke -> spoke spoke_len", spoke_len=spoke_len
+    #     ).expand_as(data),
+    # )
+    # output = rearrange(
+    #     output,
+    #     "...  (ph spoke) spoke_len -> ph ...  spoke spoke_len",
+    #     ph=phase_num,
+    #     spoke=spokes_per_phase,
+    # )
+    # return output
 
 
 def data_binning_consecutive(data, spokes_per_contra):
     assert data.shape[-2] % spokes_per_contra == 0
-    output = rearrange(
-        data,
+    output = einx.rearrange(
         "... (t spokes_per_contra) spoke_len -> t ... spokes_per_contra spoke_len",
+        data,
         spokes_per_contra=spokes_per_contra,
     )
     return output
 
 
-# def data_binning_jl(data, sorted_r_idx, contrast_num, spokes_per_contra, phase_num, spokes_per_phase):
-#     jl.GC.enable(False)
-#     jl_output =  jl.data_binning(data.numpy(), sorted_r_idx.numpy(), contrast_num, spokes_per_contra, phase_num, spokes_per_phase)
-#     output = jl_output.to_numpy()
-#     jl.GC.enable(True)
-#     return torch.from_numpy(output)
-
-
-def recon_adjnufft(
-    kspace_data, kspace_traj, kspace_density_compensation, adjnufft_ob
-):
-    return adjnufft_ob(
-        rearrange(
-            kspace_data * kspace_density_compensation,
-            "... spoke spoke_len-> ... (spoke spoke_len)",
-        ),
-        rearrange(
-            kspace_traj, "complx spoke spoke_len -> complx (spoke spoke_len)"
-        ),
-    )
+# def recon_adjnufft(kspace_data, kspace_traj, kspace_density_compensation, adjnufft_ob):
+#     return adjnufft_ob(
+#         rearrange(
+#             kspace_data * kspace_density_compensation,
+#             "... spoke spoke_len-> ... (spoke spoke_len)",
+#         ),
+#         rearrange(kspace_traj, "complx spoke spoke_len -> complx (spoke spoke_len)"),
+#     )
 
 
 def polygon_area(vertices):
@@ -317,36 +378,12 @@ def normalization(img):
 def normalization_root_of_sum_of_square(d, dim=0):
     ndims = len(d.shape)
     dim_to_reduce = tuple([i for i in range(ndims) if i != dim])
-    k = torch.sqrt(torch.sum(d * d.conj(), dim=dim_to_reduce, keepdim=True))
+    k = ops.sqrt(ops.sum(d * d.conj(), dim=dim_to_reduce, keepdim=True))
     # let the average of energy in each ksample point be 1
     # print(k)
     # print((d**2).mean())
     # print(((d/k)**2).mean())
     return d / k
-
-
-def generate_nufft_op(image_size):
-    norm_factor = np.sqrt(np.prod(image_size) * (2 ** len(image_size)))
-    nufft_op = (
-        lambda images, points: finufft_type2(
-            points,
-            images,
-            isign=-1,
-            modeord=0,
-        )
-        / norm_factor
-    )
-    nufft_adj_op = (
-        lambda values, points: finufft_type1(
-            points,
-            values,
-            tuple(image_size),
-            isign=1,
-            modeord=0,
-        )
-        / norm_factor
-    )
-    return nufft_op, nufft_adj_op
 
 
 @overload
@@ -358,9 +395,10 @@ def nufft_2d(
 ) -> Shaped[KspaceData, " *channel"]:
     if norm_factor is None:
         norm_factor = np.sqrt(np.prod(image_size))
+
     return (
         FinufftType2.apply(
-            kspace_traj,
+            kspace_traj.flip(0),
             images,
             dict(isign=-1, modeord=0),
         )
@@ -477,6 +515,63 @@ def nufft_2d(
     pass
 
 
+@overload
+def nufft_3d(
+    images: Shaped[ComplexImage3D, "*channel"],
+    kspace_traj: KspaceTraj3D,
+    image_size: Sequence[int],
+    norm_factor: Number | NoneType = None,
+) -> Shaped[KspaceData, " *channel"]:
+    if norm_factor is None:
+        norm_factor = np.sqrt(np.prod(image_size))
+    return (
+        FinufftType2.apply(
+            kspace_traj.flip(0),
+            images,
+            dict(isign=-1, modeord=0),
+        )
+        / norm_factor
+    )
+
+
+@overload
+def nufft_3d(
+    images: Shaped[ComplexImage3D, "..."],
+    kspace_traj: Shaped[KspaceTraj3D, "... batch"],
+    image_size: Sequence[int],
+    norm_factor: Number | NoneType = None,
+) -> Shaped[KspaceData, "..."]:
+    *batch_shape, _, length = kspace_traj.shape
+    batch_size = np.prod(batch_shape, dtype=int)
+    kspace_traj_batched = kspace_traj.view(-1, 2, length)
+
+    *channel_shape, h, w = images.shape[len(batch_shape) :]
+    images_batched = images.view(batch_size, *channel_shape, h, w)
+
+    output = torch.stack(
+        [
+            nufft_3d(
+                images_batched[i],
+                kspace_traj_batched[i],
+                image_size,
+                norm_factor,
+            )
+            for i in range(batch_size)
+        ],
+    )
+    return output.view(*batch_shape, *channel_shape, length)
+
+
+@dispatch
+def nufft_3d(
+    images,
+    kspace_traj,
+    image_size,
+    norm_factor,
+):
+    pass
+
+
 def nufft_adj_2d_Inner(
     kspace_data: Shaped[KspaceData, "*channel"], # *channel length
     kspace_traj: KspaceTraj, # 2, sp*leng, 
@@ -488,7 +583,7 @@ def nufft_adj_2d_Inner(
         norm_factor = np.sqrt(np.prod(image_size))
     return (
         FinufftType1.apply(
-            kspace_traj,
+            kspace_traj.flip(0),
             kspace_data,
             tuple(image_size),
             dict(isign=1, modeord=0),
@@ -503,6 +598,40 @@ def nufft_adj_2d_Inner(
 def nufft_adj_2d(
     kspace_data: Shaped[KspaceData, "z ch"],# ch z leng
     kspace_traj: Shaped[KspaceTraj, "z ch"], # z ch 2 length
+    image_size: Sequence[int],
+    norm_factor: Number | NoneType = None,
+) -> Shaped[ComplexImage2D, "..."]:
+    ic(kspace_traj.shape)# 5, 48,2 length
+    ic(kspace_data.shape)
+    *batch_shape, _, length = kspace_traj.shape # * batch_shape = z, ch; _ = 2, length = length
+    batch_size = np.prod(batch_shape, dtype=int)
+    ic(batch_size) # 160
+    kspace_traj_batched = einx.rearrange(
+        "b... comp len -> (b...) comp len", kspace_traj
+    )
+    
+    *channel_shape, length = kspace_data.shape[len(batch_shape) :] # kspace_data.shape[2 :]
+    # kspace_data = einx.rearrange("ch z len -> z ch len", kspace_data)
+    kspace_data_batched = kspace_data.contiguous().view(batch_size, *channel_shape, length)
+    ic(kspace_data_batched.shape)
+    output = torch.stack(
+        [
+            nufft_adj_2d_Inner(
+                kspace_data_batched[i],
+                kspace_traj_batched[i], ### only loop slice dimension 
+                tuple(image_size),
+                norm_factor,
+            )
+            for i in range(batch_size)
+        ],
+    )
+    return einx.rearrange("(b...) ch... h w -> b... ch... h w", output, b=batch_shape)
+    # return output.view(*batch_shape, *channel_shape, *image_size)
+
+@overload
+def nufft_adj_2d(
+    kspace_data: Shaped[KspaceData, "ch z"],# ch z leng
+    kspace_traj: KspaceTraj, # z ch 2 length
     image_size: Sequence[int],
     norm_factor: Number | NoneType = None,
 ) -> Shaped[ComplexImage2D, "..."]:
@@ -651,18 +780,3 @@ def kspace_point_to_radial_spokes(
         x,
         len=spoke_len,
     )
-
-
-### test
-# %%
-# def data_binning_test():
-#     data = torch.rand((15,80,2550,640))
-#     spokes_per_contra = 75
-#     phase_num = 5
-#     spokes_per_phase = 15
-#     contrast_num = 34
-#     sorted_r_idx = torch.stack([ torch.randperm(spokes_per_contra) for i in range(contrast_num) ])
-#     o = data_binning_jl(data, sorted_r_idx, contrast_num, spokes_per_contra, phase_num, spokes_per_phase)
-#     return o.shape
-# jl.data_binning(jl.Array(data.numpy()), jl.Array(sorted_r_idx.numpy()), contrast_num, spokes_per_contra, phase_num, spokes_per_phase)
-# print(data_binning_test())

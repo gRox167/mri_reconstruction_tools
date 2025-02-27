@@ -1,15 +1,9 @@
-from dataclasses import field
-
-import einops as eo
 import einx
 import numpy as np
 from icecream import ic
 # import sigpy as sp
-import torch
-
 from . import computation as comp
 from .density_compensation import (
-    cihat_pipe_density_compensation,
     ramp_density_compensation,
     ramp_density_compensation_batched,
     ramp_density_compensation_A,
@@ -110,20 +104,20 @@ def get_csm_lowk_xy(
     kspace_data = spoke_lowpass_filter_xy * kspace_data
     kspace_data = einx.multiply(
         "len, ch z sp len -> ch z sp len",
-        spoke_lowpass_filter_xy,
+        W,
         kspace_data,
     )
     kspace_data = comp.ifft_1D(kspace_data * kspace_density_compensation_, dim=1)
-    kspace_data = kspace_data / kspace_data.abs().max()
+
     coil_sens = comp.nufft_adj_2d(
         comp.radial_spokes_to_kspace_point(kspace_data),
         comp.radial_spokes_to_kspace_point(kspace_traj),
         im_size,
     )
 
-    img_sens_SOS = torch.sqrt(einx.sum("[ch] z h w", coil_sens.abs() ** 2))
+    img_sens_SOS = ops.sqrt(einx.sum("[ch] z h w", abs(coil_sens) ** 2))
     coil_sens = coil_sens / img_sens_SOS
-    coil_sens[torch.isnan(coil_sens)] = 0  # optional
+    coil_sens[ops.isnan(coil_sens)] = 0  # optional
     # coil_sens /= coil_sens.abs().max()
     return coil_sens
 
@@ -602,160 +596,160 @@ class CoilSensitivityEstimator:
         self.device = device
         self.coil_sens = field(default_factory=torch.Tensor)
 
-    def __getitem__(self, key):
-        return self.coil_sens[key]
+#     def __getitem__(self, key):
+#         return self.coil_sens[key]
 
 
-class Lowk_CSE(CoilSensitivityEstimator):
-    def __init__(
-        self,
-        kspace_data,
-        kspace_traj,
-        nufft_ob,
-        adjnufft_ob,
-        hamming_filter_ratio,
-        batch_size,
-        device,
-    ) -> None:
-        super().__init__(kspace_data, kspace_traj, batch_size, device)
-        self.adjnufft_ob = adjnufft_ob
-        self.nufft_ob = nufft_ob
-        self.hamming_filter_ratio = hamming_filter_ratio
+# class Lowk_CSE(CoilSensitivityEstimator):
+#     def __init__(
+#         self,
+#         kspace_data,
+#         kspace_traj,
+#         nufft_ob,
+#         adjnufft_ob,
+#         hamming_filter_ratio,
+#         batch_size,
+#         device,
+#     ) -> None:
+#         super().__init__(kspace_data, kspace_traj, batch_size, device)
+#         self.adjnufft_ob = adjnufft_ob
+#         self.nufft_ob = nufft_ob
+#         self.hamming_filter_ratio = hamming_filter_ratio
 
 
-class Lowk_2D_CSE(Lowk_CSE):
-    def __init__(
-        self,
-        kspace_data,
-        kspace_traj,
-        nufft_ob,
-        adjnufft_ob,
-        im_size,
-        hamming_filter_ratio=0.05,
-        batch_size=2,
-        device=torch.device("cpu"),
-    ) -> None:
-        super().__init__(
-            kspace_data,
-            kspace_traj,
-            nufft_ob,
-            adjnufft_ob,
-            hamming_filter_ratio,
-            batch_size,
-            device,
-        )
-        kspace_density_compensation_ = cihat_pipe_density_compensation(
-            kspace_traj, nufft_ob, adjnufft_ob, im_size, device=self.device
-        )
-        self.coil_sens = lowk_xy(
-            kspace_data * kspace_density_compensation_,
-            kspace_traj,
-            adjnufft_ob,
-            hamming_filter_ratio,
-            batch_size=batch_size,
-            device=device,
-        )
+# class Lowk_2D_CSE(Lowk_CSE):
+#     def __init__(
+#         self,
+#         kspace_data,
+#         kspace_traj,
+#         nufft_ob,
+#         adjnufft_ob,
+#         im_size,
+#         hamming_filter_ratio=0.05,
+#         batch_size=2,
+#         device=torch.device("cpu"),
+#     ) -> None:
+#         super().__init__(
+#             kspace_data,
+#             kspace_traj,
+#             nufft_ob,
+#             adjnufft_ob,
+#             hamming_filter_ratio,
+#             batch_size,
+#             device,
+#         )
+#         kspace_density_compensation_ = cihat_pipe_density_compensation(
+#             kspace_traj, nufft_ob, adjnufft_ob, im_size, device=self.device
+#         )
+#         self.coil_sens = lowk_xy(
+#             kspace_data * kspace_density_compensation_,
+#             kspace_traj,
+#             adjnufft_ob,
+#             hamming_filter_ratio,
+#             batch_size=batch_size,
+#             device=device,
+#         )
 
-    def __getitem__(self, key):
-        current_contrast = key[0]
-        current_phase = key[1]
-        return super().__getitem__(key[2:])
-        # return self.coil_sens[key[2:]]
-
-
-class Lowk_3D_CSE(Lowk_CSE):
-    def __init__(
-        self,
-        kspace_data,
-        kspace_traj,
-        nufft_ob,
-        adjnufft_ob,
-        im_size,
-        hamming_filter_ratio=[0.05, 0.5],
-        batch_size=2,
-        device=torch.device("cpu"),
-    ) -> None:
-        super().__init__(
-            kspace_data,
-            kspace_traj,
-            nufft_ob,
-            adjnufft_ob,
-            hamming_filter_ratio,
-            batch_size,
-            device,
-        )
-        kspace_density_compensation_ = cihat_pipe_density_compensation(
-            kspace_traj, nufft_ob, adjnufft_ob, im_size, device=self.device
-        )
-        self.coil_sens = lowk_xyz(
-            kspace_data * kspace_density_compensation_,
-            kspace_traj,
-            adjnufft_ob,
-            hamming_filter_ratio,
-            batch_size=batch_size,
-            device=device,
-        )
-
-    def __getitem__(self, key):
-        return super().__getitem__(key[2:])
+#     def __getitem__(self, key):
+#         current_contrast = key[0]
+#         current_phase = key[1]
+#         return super().__getitem__(key[2:])
+#         # return self.coil_sens[key[2:]]
 
 
-class Lowk_5D_CSE(Lowk_CSE):
-    def __init__(
-        self,
-        kspace_data,
-        kspace_traj,
-        nufft_ob,
-        adjnufft_ob,
-        args,
-        hamming_filter_ratio=[0.05, 0.5],
-        batch_size=2,
-        device=torch.device("cpu"),
-    ) -> None:
-        super().__init__(
-            kspace_data,
-            kspace_traj,
-            nufft_ob,
-            adjnufft_ob,
-            hamming_filter_ratio,
-            batch_size,
-            device,
-        )
-        self.kspace_traj, self.kspace_data = map(
-            comp.data_binning,
-            [kspace_traj, kspace_data],
-            [args.sorted_r_idx] * 2,
-            [args.contra_num] * 2,
-            [args.spokes_per_contra] * 2,
-            [args.phase_num] * 2,
-            [args.spokes_per_phase] * 2,
-        )
-        # self.density_compensation_func = density_compensation_func
+# class Lowk_3D_CSE(Lowk_CSE):
+#     def __init__(
+#         self,
+#         kspace_data,
+#         kspace_traj,
+#         nufft_ob,
+#         adjnufft_ob,
+#         im_size,
+#         hamming_filter_ratio=[0.05, 0.5],
+#         batch_size=2,
+#         device=torch.device("cpu"),
+#     ) -> None:
+#         super().__init__(
+#             kspace_data,
+#             kspace_traj,
+#             nufft_ob,
+#             adjnufft_ob,
+#             hamming_filter_ratio,
+#             batch_size,
+#             device,
+#         )
+#         kspace_density_compensation_ = cihat_pipe_density_compensation(
+#             kspace_traj, nufft_ob, adjnufft_ob, im_size, device=self.device
+#         )
+#         self.coil_sens = lowk_xyz(
+#             kspace_data * kspace_density_compensation_,
+#             kspace_traj,
+#             adjnufft_ob,
+#             hamming_filter_ratio,
+#             batch_size=batch_size,
+#             device=device,
+#         )
 
-    def __getitem__(self, key):
-        current_contrast = key[0]
-        current_phase = key[1]
-        kspace_traj = self.kspace_traj[current_contrast, current_phase]
-        kspace_density_compensation_ = cihat_pipe_density_compensation(
-            kspace_traj, self.nufft_ob, self.adjnufft_ob, device=self.device
-        )
-        return lowk_xyz(
-            self.kspace_data[current_contrast, current_phase]
-            * kspace_density_compensation_,
-            kspace_traj,
-            self.adjnufft_ob,
-            self.hamming_filter_ratio,
-            batch_size=self.batch_size,
-            device=self.device,
-        )
+#     def __getitem__(self, key):
+#         return super().__getitem__(key[2:])
 
 
-class ESPIRIT(CoilSensitivityEstimator):
-    def __init__(self, kspace_data, kspace_traj, batch_size, device) -> None:
-        super().__init__(kspace_data, kspace_traj, batch_size, device)
+# class Lowk_5D_CSE(Lowk_CSE):
+#     def __init__(
+#         self,
+#         kspace_data,
+#         kspace_traj,
+#         nufft_ob,
+#         adjnufft_ob,
+#         args,
+#         hamming_filter_ratio=[0.05, 0.5],
+#         batch_size=2,
+#         device=torch.device("cpu"),
+#     ) -> None:
+#         super().__init__(
+#             kspace_data,
+#             kspace_traj,
+#             nufft_ob,
+#             adjnufft_ob,
+#             hamming_filter_ratio,
+#             batch_size,
+#             device,
+#         )
+#         self.kspace_traj, self.kspace_data = map(
+#             comp.data_binning,
+#             [kspace_traj, kspace_data],
+#             [args.sorted_r_idx] * 2,
+#             [args.contra_num] * 2,
+#             [args.spokes_per_contra] * 2,
+#             [args.phase_num] * 2,
+#             [args.spokes_per_phase] * 2,
+#         )
+#         # self.density_compensation_func = density_compensation_func
 
-    def __getitem__(self, key):
-        return super().__getitem__(key)
+#     def __getitem__(self, key):
+#         current_contrast = key[0]
+#         current_phase = key[1]
+#         kspace_traj = self.kspace_traj[current_contrast, current_phase]
+#         kspace_density_compensation_ = cihat_pipe_density_compensation(
+#             kspace_traj, self.nufft_ob, self.adjnufft_ob, device=self.device
+#         )
+#         return lowk_xyz(
+#             self.kspace_data[current_contrast, current_phase]
+#             * kspace_density_compensation_,
+#             kspace_traj,
+#             self.adjnufft_ob,
+#             self.hamming_filter_ratio,
+#             batch_size=self.batch_size,
+#             device=self.device,
+#         )
+
+
+# class ESPIRIT(CoilSensitivityEstimator):
+#     def __init__(self, kspace_data, kspace_traj, batch_size, device) -> None:
+#         super().__init__(kspace_data, kspace_traj, batch_size, device)
+
+#     def __getitem__(self, key):
+#         return super().__getitem__(key)
 
 
 # class Espirit_CSE(sp.app.App):

@@ -27,30 +27,25 @@ class ReconArgs:
 
     def __post_init__(self):
         if self.partial_fourier_flag:
-            self.kspace_centre_partition_num = int(
-                # self.mdh.ushKSpaceCentrePartitionNo[0]
-                self.mdh.CenterPar
-            )
+            for i in range(len(self.twixobj["mdb"])):
+                if self.twixobj["mdb"][i].is_image_scan():
+                    self.kspace_centre_partition_num = int(
+                        self.twixobj["mdb"][i].mdh.CenterPar
+                    )
+                    break
+            print(self.kspace_centre_partition_num)
             try:
                 self.slice_num = round(
                     self.twixobj["hdr"]["Meas"]["lImagesPerSlab"]
-                    * (
-                        1
-                        + self.twixobj["hdr"]["Meas"][
-                            "dSliceOversamplingForDialog"
-                        ]
-                    )
+                    * (1 + self.twixobj["hdr"]["Meas"]["dSliceOversamplingForDialog"])
                 )
             except TypeError:
-                self.slice_num = round(
-                    self.twixobj["hdr"]["Meas"]["lImagesPerSlab"]
-                )
+                self.slice_num = round(self.twixobj["hdr"]["Meas"]["lImagesPerSlab"])
         else:
-            self.slice_num = round(
-                self.twixobj["hdr"]["Meas"]["lImagesPerSlab"]
-            )
+            self.slice_num = round(self.twixobj["hdr"]["Meas"]["lImagesPerSlab"])
 
-        self.amplitude_scale_factor = 80 * 20 * 131072 / 65536 * 20000
+        # self.amplitude_scale_factor = 80 * 20 * 131072 / 65536 * 20000
+        self.amplitude_scale_factor = 80 * 20 * 131072 / 65536
 
         self.ch_num = self.shape_dict["ch_num"]
         self.partition_num = self.shape_dict["partition_num"]

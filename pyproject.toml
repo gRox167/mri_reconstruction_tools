@@ -16,13 +16,13 @@ dependencies = [
     "zarr>=2.17.2",
     "torchkbnufft>=1.4.0",
     "xarray>=2024.3.0",
-    "jax[cpu]>=0.4.26",
+    "jax[cuda12]>=0.4.26",
     "fire>=0.6.0",
     "torch>=2.3.0",
     "pytorch-finufft @ git+https://github.com/flatironinstitute/pytorch-finufft.git",
     "matplotlib>=3.9.0",
     "plum-dispatch>=2.3.6",
-    "cufinufft>=2.2.0",
+    "cufinufft>=2.3.0",
 ]
 readme = "README.md"
 requires-python = ">= 3.8"
@@ -31,9 +31,11 @@ requires-python = ">= 3.8"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[tool.rye]
+[tool.uv]
 managed = true
-dev-dependencies = []
+dev-dependencies = [
+    "pytest>=8.3.4",
+]
 
 [tool.hatch.metadata]
 allow-direct-references = true

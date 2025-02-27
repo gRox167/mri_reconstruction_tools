@@ -1,3 +1,7 @@
+# %%
+
+
+import torch
 from dlboost.utils.tensor_utils import complex_normalize_abs_95
 from mrboost.sequence.CAPTURE_VarW_NQM_DCE_PostInj import (
     CAPTURE_VarW_NQM_DCE_PostInj_Args,
@@ -31,3 +35,10 @@ def recon_one_scan_P2P(
         mean,
         std,
     )
+
+
+# %%
+
+recon_one_scan_P2P()
+
+# %%

@@ -59,9 +59,7 @@ def voronoi_density_compensation(
         "complx spokes_num spoke_len -> complx (spokes_num spoke_len)",
     )
 
-    kspace_traj = (
-        torch.complex(kspace_traj[0], kspace_traj[1]).contiguous().to(device)
-    )
+    kspace_traj = torch.complex(kspace_traj[0], kspace_traj[1]).contiguous().to(device)
     with jax.default_device(jax.devices("cpu")[0]):
         kspace_traj = torch_to_jax(kspace_traj)
         kspace_traj = (
@@ -176,11 +174,6 @@ def ramp_density_compensation_Inner1(
     if normalize:
         #    Whether to normalize the density compensation.
         #    We normalize such that the energy of PSF = 1
-        # wmax = torch.norm(
-        #     nufft_adj_2d(
-        #         w * nufft_2d(impulse, kspace_traj, im_size), kspace_traj, im_size
-        #     )
-        # )
         impulse = torch.zeros(
             (im_size[0], im_size[1]), dtype=torch.complex64, device=w.device
         ) #create a [320,320] all 0 matrix
@@ -201,7 +194,7 @@ def ramp_density_compensation_Inner1(
 def ramp_density_compensation_Inner2(
     kspace_traj: KspaceSpokesTraj, # 2 sp, len
     im_size: Sequence[int] = (320, 320),
-    normalize: bool = True,
+    normalize: bool = False,
     energy_match_radial_with_cartisian: bool = False,
 ):
     _, sp, len = kspace_traj.shape
