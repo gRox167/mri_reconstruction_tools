@@ -13,12 +13,10 @@ from plum import dispatch
 @dataclass
 class BlackBoneStationaryArgs(GoldenAngleArgs):
     start_spokes_to_discard: int = field(default=5)  # to reach the steady state
-    # nSubVolSlc: int = field(init=False)
 
     def __post_init__(self):
         super().__post_init__()
         self.return_csm = True
-        # self.nSubVolSlc = round(self.slice_num * 3 / 4)
 
 
 @dispatch

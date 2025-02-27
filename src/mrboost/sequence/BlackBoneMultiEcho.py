@@ -26,6 +26,7 @@ class BlackBoneMultiEchoArgs(GoldenAngleArgs):
     csm_lowk_hamming_ratio: Sequence[float] = field(default=(0.05, 0.05))
     density_compensation_func: Callable = field(default=ramp_density_compensation)
     select_top_coils: int = field(default=0.95)
+    bipolar_readout: bool = field(default=True)
 
     def __post_init__(self):
         super().__post_init__()
@@ -37,15 +38,25 @@ def preprocess_raw_data(
 ):
     assert recon_args.echo_num == raw_data.shape[0]
     echo, ch, kz, sp, len = raw_data.shape
+    raw_data_ = raw_data.clone()
     data_list = []
     for e in range(recon_args.echo_num):
-        data_list.append(
-            preprocess_raw_data.invoke(torch.Tensor, GoldenAngleArgs)(
-                raw_data[e],
-                recon_args,
-                z_dim_fft=True,
-            )
+        if e % 2 == 1:
+            # if readout mode is bipolar, even echo will have opposite readout direction to odd echo
+            # map_twix will automatically flip the readout line with MDB flag of `REFLEX`
+            # So we only need to correct the location of DC point.
+            # other echo have DC point at index of 320, even echo have DC point at 319
+            # so we need to roll 319 to 320
+            raw_data_[e, :, :, :, :] = raw_data[e, :, :, :, :].roll(1, -1)
+        data_dict = preprocess_raw_data.invoke(torch.Tensor, GoldenAngleArgs)(
+            raw_data_[e],
+            recon_args,
+            z_dim_fft=True,
         )
+        # if e % 2 == 1 and recon_args.bipolar_readout:
+        # data_dict["kspace_traj"] = data_dict["kspace_traj"].flip(-1)
+        # data_dict["kspace_traj"] = data_dict["kspace_traj"].roll(-1, -1)
+        data_list.append(data_dict)
     return data_list
 
 

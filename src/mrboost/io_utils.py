@@ -18,12 +18,22 @@ from xarray import DataArray
 
 
 def torch_to_nii_direction(data):
-    return einx.rearrange("d h w -> h w d", data.flip(0, 1))
+    return einx.rearrange("d h w -> w h d", data.flip(0, 2))
 
 
-def plot_3D(image, vmin=None, vmax=None, location=(0, 0, 0)):
+def plot_3D(image, vmin=None, vmax=None, location=(0, 0, 0), scale=None, title=None):
     z, y, x = location
     fig, axes = plt.subplots(1, 3, figsize=(30, 10))
+
+    if scale is not None:
+        # use nn.functional.interpolate to scale the image
+        image = (
+            torch.nn.functional.interpolate(
+                image.unsqueeze(0).unsqueeze(0), scale_factor=scale, mode="nearest"
+            )
+            .squeeze(0)
+            .squeeze(0)
+        )
 
     axes[0].imshow(image[z, :, :], cmap="gray", vmin=vmin, vmax=vmax)
     axes[0].title.set_text("Axial")
@@ -33,6 +43,9 @@ def plot_3D(image, vmin=None, vmax=None, location=(0, 0, 0)):
     axes[2].title.set_text("Sagittal")
     for ax in axes:
         ax.axis("off")
+    if title is not None:
+        fig.suptitle(title, fontsize=20)
+    plt.tight_layout()
     return fig, axes
 
 
