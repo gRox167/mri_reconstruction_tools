@@ -53,9 +53,6 @@ def preprocess_raw_data(
             recon_args,
             z_dim_fft=True,
         )
-        # if e % 2 == 1 and recon_args.bipolar_readout:
-        # data_dict["kspace_traj"] = data_dict["kspace_traj"].flip(-1)
-        # data_dict["kspace_traj"] = data_dict["kspace_traj"].roll(-1, -1)
         data_list.append(data_dict)
     return data_list
 

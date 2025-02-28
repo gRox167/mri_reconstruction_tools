@@ -21,6 +21,10 @@ def torch_to_nii_direction(data):
     return einx.rearrange("d h w -> w h d", data.flip(0, 2))
 
 
+def nii_to_torch_direction(data):
+    return einx.rearrange("w h d -> d h w", data).flip(0, 2)
+
+
 def plot_3D(image, vmin=None, vmax=None, location=(0, 0, 0), scale=None, title=None):
     z, y, x = location
     fig, axes = plt.subplots(1, 3, figsize=(30, 10))
