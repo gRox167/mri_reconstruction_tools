@@ -8,7 +8,12 @@ from mrboost.sequence.GoldenAngle import (
     preprocess_raw_data,
 )
 from plum import dispatch
-
+from .. import computation as comp
+from ..coil_sensitivity_estimation import get_csm_lowk_xyz
+import numpy as np
+import einx
+from typing import Sequence, Callable
+from ..density_compensation import ramp_density_compensation
 
 @dataclass
 class BlackBoneStationaryArgs(GoldenAngleArgs):
@@ -55,7 +60,8 @@ def mcnufft_reconstruct_partial(
         normalize=False,
         energy_match_radial_with_cartisian=True,
     ) # adjust the weights to match the energy of the radial and cartesian trajectories
-
+    kspace_density_compensation[:, 320] = kspace_density_compensation[:, 319]
+    print(kspace_density_compensation[4, 319:321])
     kspace_data_centralized, kspace_traj, kspace_density_compensation = map(
         comp.radial_spokes_to_kspace_point,
         [kspace_data_centralized, kspace_traj, kspace_density_compensation],

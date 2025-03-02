@@ -20,6 +20,7 @@ from dlboost.utils.type_utils import (
 )
 from jaxtyping import Complex, Float, Shaped
 from torch import Tensor
+import torch
 # from jaxtyping import Shaped
 def fft(x, ax):
     return np.fft.fftshift(
@@ -317,27 +318,29 @@ def get_csm_3d_input(
     coil_sens[torch.isnan(coil_sens)] = 0
     return coil_sens
 
-# @overload
-# def get_csm_3d_input(
-#         kspace_data: Shaped[KspaceData, "ch z sp"], # ch z spokes len
-#         kspace_traj: Shaped[KspaceSpokesTraj,"..."],
-#         im_size):
-#     #ch, z, sp, spoke_len = comp.kspace_point_to_radial_spokes(kspace_data[0],640).shape #ch,kz,spokes,spoke_len
-#     kspace_density_compensation_ = ramp_density_compensation(
-#         kspace_traj, im_size
-#     ) # [80,640]
-#     kspace_data = comp.ifft_1D(kspace_data, dim=1) #ifft along z. 
-#     kspace_data = kspace_data / kspace_data.abs().max() #normalize
-#     coil_sens = comp.nufft_adj_2d(
-#         comp.radial_spokes_to_kspace_point(kspace_data*kspace_density_compensation_),# [20,224,80,640]*[80,640] = [20,224,80,640]
-#         comp.radial_spokes_to_kspace_point(kspace_traj), #[2,80*640]
-#         im_size,
-#         2* np.sqrt(np.prod(im_size))
-#     )
-#     img_sens_SOS = torch.sqrt(einx.sum("[ch] z h w", coil_sens.abs() ** 2))
-#     coil_sens = coil_sens / img_sens_SOS
-#     coil_sens[torch.isnan(coil_sens)] = 0
-#     return coil_sens
+@overload 
+def get_csm_3d_input(
+        kspace_data: Shaped[KspaceData, "ch z sp"], # ch z sp len
+        kspace_traj: KspaceSpokesTraj, # b 2 length
+        im_size):
+    print('B')
+    #ch, z, sp, spoke_len = comp.kspace_point_to_radial_spokes(kspace_data[0],640).shape #ch,kz,spokes,spoke_len
+    kspace_density_compensation_ = ramp_density_compensation(
+        kspace_traj, im_size) # [80,640]
+    kspace_data = comp.ifft_1D(kspace_data, dim=1) #ifft along z. (20,224,80,640)*(80,640) = (20,224,80,640)
+    kspace_data = kspace_data / kspace_data.abs().max() #normalize
+    # breakpoint()
+    coil_sens = comp.nufft_adj_2d(
+        comp.radial_spokes_to_kspace_point(kspace_data*kspace_density_compensation_),
+        comp.radial_spokes_to_kspace_point(kspace_traj), #[2,80*640]
+        im_size,
+        2* np.sqrt(np.prod(im_size))
+    )
+    img_sens_SOS = torch.sqrt(einx.sum("[ch] z h w", coil_sens.abs() ** 2))
+    coil_sens = coil_sens / img_sens_SOS
+    coil_sens[torch.isnan(coil_sens)] = 0
+    return coil_sens
+
 
 @dispatch
 def get_csm_3d_input(
