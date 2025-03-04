@@ -41,7 +41,7 @@ def preprocess_raw_data(
     raw_data_ = raw_data.clone()
     data_list = []
     for e in range(recon_args.echo_num):
-        if e % 2 == 1:
+        if e % 2 == 1 and recon_args.bipolar_readout:
             # if readout mode is bipolar, even echo will have opposite readout direction to odd echo
             # map_twix will automatically flip the readout line with MDB flag of `REFLEX`
             # So we only need to correct the location of DC point.
