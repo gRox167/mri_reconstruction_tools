@@ -159,9 +159,9 @@ def get_csm_lowk_xyz(
         im_size,
         2* np.sqrt(np.prod(im_size))
     )
-    ic(coil_sens.shape)
+    print(coil_sens.shape)
     img_sens_SOS = torch.squeeze(torch.sqrt(einx.sum("z [ch] h w", coil_sens.abs() ** 2)))
-    ic(img_sens_SOS.shape)
+    print(img_sens_SOS.shape)
     coil_sens = einx.rearrange("z ch h w -> ch z h w",coil_sens)
 
     coil_sens = coil_sens / img_sens_SOS # ch z h w / z h w;
@@ -227,6 +227,7 @@ def get_csm_3d_input(
     kspace_data: Shaped[KspaceData, "b z ch"],
     kspace_traj: Shaped[KspaceTraj, "b z ch"], # b z, 2,len
     im_size):
+    print('no ifft')
     kspace_traj_in = comp.kspace_point_to_radial_spokes(kspace_traj[:,:,1,:,:],640) # 1,5,2, 40,640 # b, z, complex, sp, length
     kspace_density_compensation_ = ramp_density_compensation_A(kspace_traj_in[:,1,:,:], im_size,normalize = False,energy_match_radial_with_cartisian=False)# [z 2 sp,length]
     # kspace_density_compensation_ = einx.rearrange("z ch sp len -> ch z sp len",kspace_density_compensation_)
@@ -323,7 +324,7 @@ def get_csm_3d_input(
         kspace_data: Shaped[KspaceData, "ch z sp"], # ch z sp len
         kspace_traj: KspaceSpokesTraj, # b 2 length
         im_size):
-    print('B')
+    print('have ifft first')
     #ch, z, sp, spoke_len = comp.kspace_point_to_radial_spokes(kspace_data[0],640).shape #ch,kz,spokes,spoke_len
     kspace_density_compensation_ = ramp_density_compensation(
         kspace_traj, im_size) # [80,640]

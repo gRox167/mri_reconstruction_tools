@@ -124,6 +124,21 @@ def to_nifty(
     print("Writed to: ", output_path)
 
 
+
+
+@overload
+def to_nifty(
+    img: np.ndarray,
+    output_path: str | bytes | os.PathLike,
+    voxel_size: tuple[float, float, float],
+):
+    # nifty_image = nib.Nifti1Image(img.numpy(), affine)
+    # nib.save(nifty_image, output_path)
+    # print("Writed to: ", output_path)
+    affine = np.diag([voxel_size[0],voxel_size[1],voxel_size[2],1])
+    nifty_image = nib.Nifti1Image(img, affine)
+    nib.save(nifty_image, output_path)
+
 @overload
 def to_nifty(
     img: torch.Tensor,
@@ -134,7 +149,6 @@ def to_nifty(
     # nib.save(nifty_image, output_path)
     # print("Writed to: ", output_path)
     to_nifty(img.numpy(force=True), output_path, affine)
-
 
 @overload
 def to_nifty(

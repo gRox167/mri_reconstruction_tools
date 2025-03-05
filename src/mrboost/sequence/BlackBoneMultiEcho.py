@@ -6,6 +6,7 @@ import torch
 from mrboost.density_compensation import (
     ramp_density_compensation,
 )
+from icecream import ic
 
 # from mrboost.io_utils import *
 from mrboost.sequence.GoldenAngle import (
@@ -56,15 +57,26 @@ def mcnufft_reconstruct(
     *args,
     **kwargs,
 ):
-    return [
-        mcnufft_reconstruct.invoke(Dict[str, torch.Tensor], GoldenAngleArgs)(
-            e,
-            recon_args,
-            *args,
-            **kwargs,
-        )
-        for e in data_preprocessed
-    ]
+    results = []
+    for idx,e in enumerate(data_preprocessed):
+        print(idx)
+        result = mcnufft_reconstruct.invoke(Dict[str, torch.Tensor], GoldenAngleArgs)(e, recon_args, *args, **kwargs)
+        ic(result.shape)
+        results.append(result)
+    return results
+    # return [
+    #     mcnufft_reconstruct.invoke(Dict[str, torch.Tensor], GoldenAngleArgs)(
+    #         e,
+    #         recon_args,
+    #         *args,
+    #         **kwargs,
+    #     )
+    #     for e in data_preprocessed
+    # ]
+    # return [
+    #     mcnufft_reconstruct(e, recon_args, *args, **kwargs)
+    #     for e in data_preprocessed
+    # ]
 
 
 @dispatch
