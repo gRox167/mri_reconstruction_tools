@@ -21,6 +21,7 @@ class GoldenAngleArgs(ReconArgs):
     bias_field_correction: bool = field(default=False)
     return_csm: bool = field(default=False)
     return_multi_channel_image: bool = field(default=False)
+    filtered_density_compensation_ratio: float = field(default=0.0)
 
     def __post_init__(self):
         super().__post_init__()
@@ -94,8 +95,25 @@ def mcnufft_reconstruct(
         normalize=False,
         energy_match_radial_with_cartisian=True,
     )
-    kspace_density_compensation[:, 320] = kspace_density_compensation[:, 319]
+
+    if recon_args.filtered_density_compensation_ratio > 0.0:
+        l = kspace_density_compensation.shape[-1]
+        front_idx = round((l * recon_args.filtered_density_compensation_ratio) / 2)
+        back_idx = round(l * recon_args.filtered_density_compensation_ratio / 2)
+        kspace_density_compensation[:, :front_idx] = kspace_density_compensation[
+            :, front_idx : front_idx + 1
+        ]
+        kspace_density_compensation[:, -back_idx:] = kspace_density_compensation[
+            :, -back_idx : -back_idx + 1
+        ]
+
+    bottom = torch.maximum(
+        kspace_density_compensation[:, 320], kspace_density_compensation[:, 319]
+    )
+    kspace_density_compensation[:, 320] = bottom
+    kspace_density_compensation[:, 319] = bottom
     print(kspace_density_compensation[4, 319:321])
+
     kspace_data = comp.radial_spokes_to_kspace_point(
         kspace_data_z * kspace_density_compensation
     )
@@ -109,7 +127,6 @@ def mcnufft_reconstruct(
         # 2 because of readout_oversampling
     )
     img = einx.sum("[ch] slice w h", img_multi_ch * csm.conj())
-    # img = einx.sum("[ch] slice w h", img_multi_ch * img_multi_ch.conj())
 
     if recon_args.bias_field_correction:
         img = n4_bias_field_correction_3d_complex(img)

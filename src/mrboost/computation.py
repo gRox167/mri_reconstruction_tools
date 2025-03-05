@@ -32,6 +32,7 @@ from .type_utils import (
     KspaceData,
     KspaceSpokesData,
     KspaceSpokesTraj,
+    KspaceSpokesTraj3D,
     KspaceTraj,
     KspaceTraj3D,
 )
@@ -543,10 +544,10 @@ def nufft_3d(
 ) -> Shaped[KspaceData, "..."]:
     *batch_shape, _, length = kspace_traj.shape
     batch_size = np.prod(batch_shape, dtype=int)
-    kspace_traj_batched = kspace_traj.view(-1, 2, length)
+    kspace_traj_batched = kspace_traj.view(-1, 3, length)
 
-    *channel_shape, h, w = images.shape[len(batch_shape) :]
-    images_batched = images.view(batch_size, *channel_shape, h, w)
+    *channel_shape, d, h, w = images.shape[len(batch_shape) :]
+    images_batched = images.view(batch_size, *channel_shape, d, h, w)
 
     output = torch.stack(
         [
@@ -625,8 +626,8 @@ def nufft_adj_2d(
             for i in range(batch_size)
         ],
     )
-    return einx.rearrange("(b...) ch... h w -> b... ch... h w", output, b=batch_shape)
-    # return output.view(*batch_shape, *channel_shape, *image_size)
+    # return einx.rearrange("(b...) ch... h w -> b... ch... h w", output, b=batch_shape)
+    return output.view(*batch_shape, *channel_shape, *image_size)
 
 
 @overload
@@ -797,7 +798,9 @@ def nufft_adj_2d_batched(
     return einx.rearrange("(b...) ch... h w -> b... ch... h w", torch.stack(outputs, dim=0), b = batch_shape)
 
 def radial_spokes_to_kspace_point(
-    x: Shaped[KspaceSpokesData, "..."] | Shaped[KspaceSpokesTraj, "..."],
+    x: Shaped[KspaceSpokesData, "..."]
+    | Shaped[KspaceSpokesTraj, "..."]
+    | Shaped[KspaceSpokesTraj3D, "..."],
 ):
     return einx.rearrange(
         "... middle len -> ... (middle len)",
@@ -806,7 +809,7 @@ def radial_spokes_to_kspace_point(
 
 
 def kspace_point_to_radial_spokes(
-    x: Shaped[KspaceData, "..."],
+    x: Shaped[KspaceData, "..."] | Shaped[KspaceSpokesTraj3D, "..."],
     spoke_len: int,
 ):
     return einx.rearrange(
