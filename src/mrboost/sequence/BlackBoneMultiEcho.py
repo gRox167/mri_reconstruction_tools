@@ -27,7 +27,7 @@ class BlackBoneMultiEchoArgs(GoldenAngleArgs):
     csm_lowk_hamming_ratio: Sequence[float] = field(default=(0.05, 0.05))
     density_compensation_func: Callable = field(default=ramp_density_compensation)
     select_top_coils: int = field(default=0.95)
-    bipolar_readout: bool = field(default=True)
+    bipolar_readout: bool = field(default=False)
 
     def __post_init__(self):
         super().__post_init__()
@@ -69,7 +69,7 @@ def mcnufft_reconstruct(
     for idx,e in enumerate(data_preprocessed):
         print(idx)
         result = mcnufft_reconstruct.invoke(Dict[str, torch.Tensor], GoldenAngleArgs)(e, recon_args, *args, **kwargs)
-        ic(result.shape)
+        # ic(result.shape)
         results.append(result)
     return results
     # return [

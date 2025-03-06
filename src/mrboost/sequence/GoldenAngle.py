@@ -19,7 +19,7 @@ class GoldenAngleArgs(ReconArgs):
     csm_lowk_hamming_ratio: Sequence[float] = field(default=(0.05, 0.05))
     density_compensation_func: Callable = field(default=ramp_density_compensation)
     bias_field_correction: bool = field(default=False)
-    return_csm: bool = field(default=False)
+    return_csm: bool = field(default=True)
     return_multi_channel_image: bool = field(default=False)
     filtered_density_compensation_ratio: float = field(default=0.0)
 
