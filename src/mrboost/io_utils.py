@@ -129,7 +129,7 @@ def to_nifty(
     img: np.ndarray,
     input_path,
     output_path: str | bytes | os.PathLike,
-    affine=torch.eye(4, dtype=torch.float32),
+    # affine=torch.eye(4, dtype=torch.float32),
 ):
     # nifty_image = nib.Nifti1Image(img, affine)
     # # check_mk_dirs(output_path)
