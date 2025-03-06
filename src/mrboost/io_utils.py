@@ -13,6 +13,7 @@ import pydicom
 import torch
 import zarr
 from einops import parse_shape
+from jaxtyping import ArrayLike
 from plum import dispatch, overload
 from xarray import DataArray
 
@@ -117,32 +118,97 @@ def to_nifty(
     print("Writed to: ", output_path)
 
 
-@overload
-def to_nifty(
-    img: torch.Tensor,
-    output_path: str | bytes | os.PathLike,
-    affine=torch.eye(4, dtype=torch.float32),
-):
-    # nifty_image = nib.Nifti1Image(img.numpy(), affine)
-    # nib.save(nifty_image, output_path)
-    # print("Writed to: ", output_path)
-    to_nifty(img.numpy(force=True), output_path, affine)
+def write_nifti(data_array, reference_nifti_file_path, output_file_path):
+    """
+    Write a new NIFTI file using the provided data array, reference NIFTI file's affine and header.
+
+    Parameters:
+    - data_array: numpy array, the data to be saved in the new NIFTI file.
+    - reference_nifti_file_path: str, path to the reference NIFTI file.
+    - output_file_path: str, path where the new NIFTI file will be saved.
+    """
+    # Load the reference NIFTI file
+    reference_image = nib.load(reference_nifti_file_path)
+    reference_image.header.set_data_dtype(np.float32)
+
+    # Create a new NIFTI image using the data array, reference affine, and header
+    new_image = nib.Nifti1Image(
+        data_array, reference_image.affine, reference_image.header
+    )
+
+    # Ensure the output directory exists
+    output_path = Path(output_file_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Save the new NIFTI image to the specified output path
+    nib.save(new_image, output_file_path)
 
 
 @overload
-def to_nifty(
-    img: DataArray,
+def to_nifti(
+    img: np.ndarray,
     output_path: str | bytes | os.PathLike,
-    affine=torch.eye(4, dtype=torch.float32),
+    reference_nifti_path: str | bytes | os.PathLike,
 ):
-    to_nifty(img.to_numpy(), output_path, affine)
+    """
+    Write a new NIFTI file using the provided data array, reference NIFTI file's affine and header.
+
+    Parameters:
+    - data_array: numpy array, the data to be saved in the new NIFTI file.
+    - reference_nifti_file_path: str, path to the reference NIFTI file.
+    - output_file_path: str, path where the new NIFTI file will be saved.
+    """
+    # Load the reference NIFTI file
+    reference_image = nib.load(reference_nifti_path)
+    reference_image.header.set_data_dtype(np.float32)
+
+    # Create a new NIFTI image using the data array, reference affine, and header
+    new_image = nib.Nifti1Image(img, reference_image.affine, reference_image.header)
+
+    # Ensure the output directory exists
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Save the new NIFTI image to the specified output path
+    nib.save(new_image, output_path)
+
+    print("Writed to: ", output_path)
 
 
-@dispatch
-def to_nifty(img, output_path, affine=torch.eye(4, dtype=torch.float32)):
+@overload
+def to_nifti(
+    img: np.ndarray,
+    output_path: str | bytes | os.PathLike,
+    affine: ArrayLike,
+):
     nifty_image = nib.Nifti1Image(img, affine)
     nib.save(nifty_image, output_path)
     print("Writed to: ", output_path)
+    # to_nifti(img, output_path, affine)
+    # print("Writed to: ", output_path)
+
+
+@overload
+def to_nifti(
+    img: torch.Tensor,
+    output_path: str | bytes | os.PathLike,
+    affine: ArrayLike,
+):
+    to_nifti(img.numpy(force=True), output_path, affine)
+
+
+@overload
+def to_nifti(
+    img: DataArray,
+    output_path: str | bytes | os.PathLike,
+    affine: ArrayLike,
+):
+    to_nifti(img.to_numpy(), output_path, affine)
+
+
+@dispatch
+def to_nifti(img, output_path, affine):
+    pass
 
 
 def to_hdf5(

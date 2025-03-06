@@ -22,7 +22,7 @@ from plum import dispatch
 @dataclass
 class BlackBoneMultiEchoArgs(GoldenAngleArgs):
     start_spokes_to_discard: int = field(default=5)  # to reach the steady state
-    echo_num: int = field(default=3)
+    # echo_num: int = field(default=3)
     csm_lowk_hamming_ratio: Sequence[float] = field(default=(0.05, 0.05))
     density_compensation_func: Callable = field(default=ramp_density_compensation)
     select_top_coils: int = field(default=0.95)
@@ -36,11 +36,11 @@ class BlackBoneMultiEchoArgs(GoldenAngleArgs):
 def preprocess_raw_data(
     raw_data: torch.Tensor, recon_args: BlackBoneMultiEchoArgs, *args, **kwargs
 ):
-    assert recon_args.echo_num == raw_data.shape[0]
+    # assert recon_args.echo_num == raw_data.shape[0]
     echo, ch, kz, sp, len = raw_data.shape
     raw_data_ = raw_data.clone()
     data_list = []
-    for e in range(recon_args.echo_num):
+    for e in range(echo):
         if e % 2 == 1 and recon_args.bipolar_readout:
             # if readout mode is bipolar, even echo will have opposite readout direction to odd echo
             # map_twix will automatically flip the readout line with MDB flag of `REFLEX`

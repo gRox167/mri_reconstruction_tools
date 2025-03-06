@@ -31,6 +31,8 @@ class GoldenAngleArgs(ReconArgs):
 def preprocess_raw_data(
     raw_data: torch.Tensor, recon_args: GoldenAngleArgs, z_dim_fft=True
 ):
+    if raw_data.device != torch.device(recon_args.device):
+        raw_data = raw_data.to(recon_args.device)
     kspace_raw_data = raw_data * recon_args.amplitude_scale_factor
     kspace_traj = comp.generate_golden_angle_radial_spokes_kspace_trajectory(
         kspace_raw_data.shape[2], recon_args.spoke_len
