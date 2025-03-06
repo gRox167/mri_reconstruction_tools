@@ -13,6 +13,7 @@ import pydicom
 import torch
 import zarr
 from einops import parse_shape
+from jaxtyping import ArrayLike
 from plum import dispatch, overload
 from xarray import DataArray
 
@@ -168,10 +169,10 @@ def to_nifty(
     to_nifty(img.numpy(force=True), output_path, affine)
 
 @overload
-def to_nifty(
-    img: DataArray,
+def to_nifti(
+    img: np.ndarray,
     output_path: str | bytes | os.PathLike,
-    affine=torch.eye(4, dtype=torch.float32),
+    affine: ArrayLike,
 ):
     to_nifty(img.to_numpy(), output_path, affine)
 
@@ -183,6 +184,31 @@ def to_nifty(img, input_path,output_path, affine=torch.eye(4, dtype=torch.float3
     nifty_image = nib.Nifti1Image(img, img1.affine, header=header)
     nib.save(nifty_image, output_path)
     print("Writed to: ", output_path)
+    # to_nifti(img, output_path, affine)
+    # print("Writed to: ", output_path)
+
+
+@overload
+def to_nifti(
+    img: torch.Tensor,
+    output_path: str | bytes | os.PathLike,
+    affine: ArrayLike,
+):
+    to_nifti(img.numpy(force=True), output_path, affine)
+
+
+@overload
+def to_nifti(
+    img: DataArray,
+    output_path: str | bytes | os.PathLike,
+    affine: ArrayLike,
+):
+    to_nifti(img.to_numpy(), output_path, affine)
+
+
+@dispatch
+def to_nifti(img, output_path, affine):
+    pass
 
 
 def to_hdf5(
