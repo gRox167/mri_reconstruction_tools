@@ -13,3 +13,4 @@
 **/__pycache__
 **/.pytest_cache
 
+src/mrboost/coil_sensitivity_estimation.py

@@ -37,7 +37,7 @@ def ifft(X, ax):
 
 def center_crop(
         kspace_data,
-        hamming_filter_ratio=[0.03,0.03]):
+        hamming_filter_ratio=[0.05,0.05]):
     ch, z, sp, spoke_len = kspace_data.shape
     spoke_len = kspace_data.shape[-1]
     ########### create hamming filter ################
@@ -166,7 +166,6 @@ def get_csm_lowk_xyz(
 
     coil_sens = coil_sens / img_sens_SOS # ch z h w / z h w;
     coil_sens[torch.isnan(coil_sens)] = 0  # optional
-    # coil_sens /= coil_sens.abs().max()
     return coil_sens
 
 @overload
@@ -174,7 +173,7 @@ def get_csm_lowk_xyz(
     kspace_data:Shaped[KspaceSpokesData,"ch z"],
     kspace_traj:KspaceSpokesTraj,
     im_size,
-    hamming_filter_ratio=[0.05, 0.1],
+    hamming_filter_ratio=[0.05, 0.05],
 ):
     ch,z, sp, spoke_len = kspace_data.shape #ch,kz,spokes,spoke_len
     # ic(kspace_data.shape)
