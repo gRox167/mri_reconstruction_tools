@@ -5,11 +5,9 @@ from typing import Callable, Dict, List, Sequence
 
 import einx
 import torch
-from mrboost.density_compensation import (
-    ramp_density_compensation,
+from mrboost.density_compensation.area_based_radial import (
+    area_based_radial_density_compensation,
 )
-
-# from mrboost.io_utils import *
 from mrboost.sequence.GoldenAngle import (
     GoldenAngleArgs,
     SoS_nufft_reconstruct,
@@ -25,7 +23,9 @@ from plum import dispatch
 class BlackBoneMultiEchoArgs(GoldenAngleArgs):
     # echo_num: int = field(default=3)
     csm_lowk_hamming_ratio: Sequence[float] = field(default=(0.03, 0.03))
-    density_compensation_func: Callable = field(default=ramp_density_compensation)
+    density_compensation_func: Callable = field(
+        default=area_based_radial_density_compensation
+    )
     # select_top_coils: int = field(default=0.95)
     bipolar_readout: bool = field(default=True)
 

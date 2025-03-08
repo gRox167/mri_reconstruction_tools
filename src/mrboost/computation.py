@@ -628,6 +628,13 @@ def radial_spokes_to_kspace_point(
     | Shaped[KspaceSpokesTraj, "..."]
     | Shaped[KspaceSpokesTraj3D, "..."],
 ):
+    """
+    Convert kspace data from radial spokes to kspace point format.
+    Args:
+        x: kspace data in radial spokes format
+    Returns:
+        kspace data in kspace point format
+    """
     return einx.rearrange(
         "... middle len -> ... (middle len)",
         x,
@@ -635,9 +642,27 @@ def radial_spokes_to_kspace_point(
 
 
 def kspace_point_to_radial_spokes(
-    x: Shaped[KspaceData, "..."] | Shaped[KspaceSpokesTraj3D, "..."],
-    spoke_len: int,
+    x: Shaped[KspaceData, "..."]
+    | Shaped[KspaceTraj, "..."]
+    | Shaped[KspaceTraj3D, "..."],
+    spoke_len: int | None = None,
+    spoke_num: int | None = None,
 ):
+    """
+    Convert kspace data from kspace point to radial spokes format.
+    Args:
+       x: kspace data in kspace point format
+       spoke_len: length of each spoke
+       spoke_num: number of spokes
+    Returns:
+        kspace data in radial spokes format
+    Raises:
+        ValueError: if neither spoke_len nor spoke_num is provided
+    """
+    if spoke_len is None and spoke_num is None:
+        raise ValueError("Either spoke_len or spoke_num must be provided")
+    if spoke_len is None:
+        spoke_len = x.shape[-1] // spoke_num
     return einx.rearrange(
         "... (middle len) -> ... middle len",
         x,

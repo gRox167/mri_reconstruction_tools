@@ -4,12 +4,13 @@ from typing import Callable, Dict
 import einx
 import numpy as np
 import torch
-from plum import dispatch
-
 from mrboost import computation as comp
 from mrboost.coil_sensitivity_estimation import get_csm_lowk_xyz
-from mrboost.density_compensation import ramp_density_compensation
+from mrboost.density_compensation.area_based_radial import (
+    area_based_radial_density_compensation,
+)
 from mrboost.sequence.GoldenAngle import GoldenAngleArgs
+from plum import dispatch
 
 # from icecream import ic
 
@@ -24,9 +25,7 @@ class CAPTURE_VarW_NQM_DCE_PostInj_Args(GoldenAngleArgs):
     time_per_contrast: int = 10
     percentW: float = 12.5
     contra_num: int = field(init=False)
-    start_spokes_to_discard: int = field(
-        init=False
-    )  # to reach the steady state
+    start_spokes_to_discard: int = field(init=False)  # to reach the steady state
     binning_spoke_slice: slice = field(init=False)
     binning_start_idx: int = field(init=False)
     binning_end_idx: int = field(init=False)
@@ -59,14 +58,10 @@ class CAPTURE_VarW_NQM_DCE_PostInj_Args(GoldenAngleArgs):
         self.spokes_per_contra = int(
             nSpokesPerContrast - np.mod(nSpokesPerContrast, self.phase_num)
         )
-        self.contra_num = int(
-            np.floor(nSpokesToWorkWith / self.spokes_per_contra)
-        )
+        self.contra_num = int(np.floor(nSpokesToWorkWith / self.spokes_per_contra))
         self.spokes_per_phase = int(nSpokesPerContrast / self.phase_num)
 
-        self.binning_start_idx = (
-            self.spokes_to_skip - self.start_spokes_to_discard
-        )
+        self.binning_start_idx = self.spokes_to_skip - self.start_spokes_to_discard
         self.binning_end_idx = (
             self.spokes_to_skip
             - self.start_spokes_to_discard
@@ -96,9 +91,7 @@ def preprocess_raw_data(
     # here rotation is index of 100 different degree, to get same with cihat, please+1
     respiratory_curve_contrast = einx.rearrange(
         "(contra spokes_per_contra) -> contra spokes_per_contra",
-        respiratory_curve[
-            recon_args.binning_start_idx : recon_args.binning_end_idx
-        ],
+        respiratory_curve[recon_args.binning_start_idx : recon_args.binning_end_idx],
         contra=recon_args.contra_num,
         spokes_per_contra=recon_args.spokes_per_contra,
     )
@@ -139,9 +132,7 @@ def preprocess_raw_data(
     ) = map(
         comp.data_binning,
         [
-            kspace_traj[
-                :, recon_args.binning_start_idx : recon_args.binning_end_idx
-            ],
+            kspace_traj[:, recon_args.binning_start_idx : recon_args.binning_end_idx],
             kspace_data_z[
                 :, :, recon_args.binning_start_idx : recon_args.binning_end_idx
             ],
@@ -178,7 +169,7 @@ def mcnufft_reconstruct(
     data_preprocessed: Dict[str, torch.Tensor],
     recon_args: CAPTURE_VarW_NQM_DCE_PostInj_Args,
     return_multi_channel: bool = False,
-    density_compensation_func: Callable = ramp_density_compensation,
+    density_compensation_func: Callable = area_based_radial_density_compensation,
     csm_xy_z_lowk_ratio=[0.05, 0.05],
     *args,
     **kwargs,
@@ -199,7 +190,7 @@ def mcnufft_reconstruct(
     for t in range(recon_args.contra_num):
         phases = []
         for ph in range(recon_args.phase_num):
-            print(f"reconstructing contrast {t+1} phase {ph+1}")
+            print(f"reconstructing contrast {t + 1} phase {ph + 1}")
             _kspace_density_compensation = density_compensation_func(
                 kspace_traj[t, ph],
                 im_size=recon_args.im_size,
@@ -209,9 +200,7 @@ def mcnufft_reconstruct(
             _kspace_data = comp.radial_spokes_to_kspace_point(
                 kspace_data_z[t, ph] * _kspace_density_compensation
             )
-            _kspace_traj = comp.radial_spokes_to_kspace_point(
-                kspace_traj[t, ph]
-            )
+            _kspace_traj = comp.radial_spokes_to_kspace_point(kspace_traj[t, ph])
             img_multi_ch = comp.nufft_adj_2d(
                 _kspace_data,
                 _kspace_traj,

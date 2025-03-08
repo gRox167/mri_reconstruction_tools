@@ -7,8 +7,8 @@ import torch
 from mrboost import computation as comp
 from mrboost.bias_field_correction import n4_bias_field_correction_3d_complex
 from mrboost.coil_sensitivity_estimation import get_csm_lowk_xyz
-from mrboost.density_compensation import (
-    ramp_density_compensation,
+from mrboost.density_compensation.area_based_radial import (
+    area_based_radial_density_compensation,
 )
 from mrboost.sequence.boilerplate import ReconArgs
 from plum import dispatch
@@ -18,7 +18,9 @@ from plum import dispatch
 class GoldenAngleArgs(ReconArgs):
     start_spokes_to_discard: int = field(default=0)  # to reach the steady state
     csm_lowk_hamming_ratio: Sequence[float] = field(default=(0.03, 0.03))
-    density_compensation_func: Callable = field(default=ramp_density_compensation)
+    density_compensation_func: Callable = field(
+        default=area_based_radial_density_compensation
+    )
     bias_field_correction: bool = field(default=False)
     return_csm: bool = field(default=False)
     return_multi_channel_image: bool = field(default=False)
@@ -113,9 +115,9 @@ def mcnufft_reconstruct(
     )
 
     if recon_args.filtered_density_compensation_ratio > 0.0:
-        l = kspace_density_compensation.shape[-1]
-        front_idx = round((l * recon_args.filtered_density_compensation_ratio) / 2)
-        back_idx = round(l * recon_args.filtered_density_compensation_ratio / 2)
+        length = kspace_density_compensation.shape[-1]
+        front_idx = round((length * recon_args.filtered_density_compensation_ratio) / 2)
+        back_idx = round(length * recon_args.filtered_density_compensation_ratio / 2)
         kspace_density_compensation[:, :front_idx] = kspace_density_compensation[
             :, front_idx : front_idx + 1
         ]
