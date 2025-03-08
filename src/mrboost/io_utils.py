@@ -26,7 +26,15 @@ def nii_to_torch_direction(data):
     return einx.rearrange("w h d -> d h w", data).flip(0, 2)
 
 
-def plot_3D(image, vmin=None, vmax=None, location=(0, 0, 0), scale=None, title=None):
+def plot_3D(
+    image,
+    vmin=None,
+    vmax=None,
+    location=(0, 0, 0),
+    scale=None,
+    title=None,
+    show_crosshairs=False,
+):
     z, y, x = location
     fig, axes = plt.subplots(1, 3, figsize=(30, 10))
 
@@ -46,6 +54,20 @@ def plot_3D(image, vmin=None, vmax=None, location=(0, 0, 0), scale=None, title=N
     axes[1].title.set_text("Coronal")
     axes[2].imshow(image[:, :, x], cmap="gray", vmin=vmin, vmax=vmax)
     axes[2].title.set_text("Sagittal")
+
+    # Add crosshairs if requested
+    if show_crosshairs:
+        # Axial view (shows y-x plane)
+        axes[0].axhline(y=y, color="r", linestyle="--", alpha=0.7)
+        axes[0].axvline(x=x, color="r", linestyle="--", alpha=0.7)
+
+        # Coronal view (shows z-x plane)
+        axes[1].axhline(y=z, color="r", linestyle="--", alpha=0.7)
+        axes[1].axvline(x=x, color="r", linestyle="--", alpha=0.7)
+
+        # Sagittal view (shows z-y plane)
+        axes[2].axhline(y=z, color="r", linestyle="--", alpha=0.7)
+        axes[2].axvline(x=y, color="r", linestyle="--", alpha=0.7)
     for ax in axes:
         ax.axis("off")
     if title is not None:
@@ -184,8 +206,6 @@ def to_nifti(
     nifty_image = nib.Nifti1Image(img, affine)
     nib.save(nifty_image, output_path)
     print("Writed to: ", output_path)
-    # to_nifti(img, output_path, affine)
-    # print("Writed to: ", output_path)
 
 
 @overload

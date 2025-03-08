@@ -17,13 +17,22 @@ def get_csm_lowk_xy(
     hamming_filter_ratio=0.05,
 ):
     ch, z, sp, spoke_len = kspace_data.shape
+
     kspace_density_compensation_ = ramp_density_compensation(
         comp.radial_spokes_to_kspace_point(kspace_traj), im_size
     )
     kspace_density_compensation_ = comp.kspace_point_to_radial_spokes(
         kspace_density_compensation_, spoke_len
     )
+
     spoke_len = kspace_data.shape[-1]
+    # bottom = ops.maximum(
+    #     kspace_density_compensation_[:, spoke_len // 2],
+    #     kspace_density_compensation_[:, spoke_len // 2 - 1],
+    # )
+    # kspace_density_compensation_[:, spoke_len // 2] = bottom
+    # kspace_density_compensation_[:, spoke_len // 2 - 1] = bottom
+    # print(kspace_density_compensation_[4, spoke_len // 2 - 1 : spoke_len // 2 + 1])
     W = comp.hamming_filter(nonzero_width_percent=hamming_filter_ratio, width=spoke_len)
     kspace_data = einx.multiply(
         "len, ch z sp len -> ch z sp len",
@@ -40,7 +49,7 @@ def get_csm_lowk_xy(
 
     img_sens_SOS = ops.sqrt(einx.sum("[ch] z h w", abs(coil_sens) ** 2))
     coil_sens = coil_sens / img_sens_SOS
-    coil_sens[ops.isnan(coil_sens)] = 0  # optional
+    # coil_sens[ops.isnan(coil_sens)] = 0  # optional
     # coil_sens /= coil_sens.abs().max()
     return coil_sens
 
@@ -55,9 +64,6 @@ def get_csm_lowk_xyz(
     kspace_density_compensation_ = ramp_density_compensation(
         kspace_traj, im_size, energy_match_radial_with_cartisian=True
     )
-    # kspace_density_compensation_ = comp.kspace_point_to_radial_spokes(
-    #     kspace_density_compensation_, spoke_len
-    # )
     spoke_len = kspace_data.shape[-1]
     Wxy = comp.hamming_filter(
         nonzero_width_percent=hamming_filter_ratio[0], width=spoke_len
@@ -65,7 +71,7 @@ def get_csm_lowk_xyz(
     Wz = comp.hamming_filter(nonzero_width_percent=hamming_filter_ratio[1], width=z)
 
     kspace_data = einx.multiply(
-        "len, z, ch z sp len -> ch z sp len",
+        "len, kz, ch kz sp len -> ch kz sp len",
         Wxy,
         Wz,
         kspace_data,
@@ -82,6 +88,7 @@ def get_csm_lowk_xyz(
     coil_sens = coil_sens / img_sens_SOS
     # coil_sens[ops.isnan(coil_sens)] = 0  # optional
     # coil_sens /= coil_sens.abs().max()
+
     return coil_sens
 
 

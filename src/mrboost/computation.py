@@ -61,6 +61,8 @@ def batch_process(batch_size: int, device: torch.device, batch_dim=0):
 
 def hamming_filter(nonzero_width_percent: float, width: int) -> np.ndarray:
     nonzero_width = round(width * nonzero_width_percent)
+    nonzero_width = nonzero_width - nonzero_width % 2
+    # print(nonzero_width)
     pad_width_L = round((width - nonzero_width) // 2)
     pad_width_R = width - nonzero_width - pad_width_L
     hamming_weights = np.float32(np.hamming(nonzero_width))
@@ -156,7 +158,7 @@ def centralize_kspace(
     # center_in_acquire_length is index, here +1 to turn into quantity
     front_padding = round(full_length / 2 - (center_idx_in_acquire_lenth + 1))
     # the dc point can be located at length/2 or length/2+1, when length is even, cihat use length/2+1
-    # front_padding += 1
+    front_padding += 1
     pad_length = [0 for i in range(2 * len(kspace_data.shape))]
     pad_length[dim * 2 + 1], pad_length[dim * 2] = (
         front_padding,
@@ -210,7 +212,8 @@ def generate_golden_angle_radial_spokes_kspace_trajectory(spokes_num, spoke_leng
         torch.Tensor: A 2D k-space trajectory of shape (2, spokes_num, spoke_length).
     """
     # Golden angle in radians
-    KWIC_GOLDENANGLE = (np.sqrt(5) - 1) / 2 * np.pi  # Golden angle in radians
+    # KWIC_GOLDENANGLE = (np.sqrt(5) - 1) / 2 * np.pi  # Golden angle in radians
+    KWIC_GOLDENANGLE = 111.246117975 / 360 * 2 * np.pi  # Golden angle in radians
 
     # Create the k-space trajectory for each spoke
     # k = torch.linspace(-0.5, 0.5 - 1 / spoke_length, spoke_length)

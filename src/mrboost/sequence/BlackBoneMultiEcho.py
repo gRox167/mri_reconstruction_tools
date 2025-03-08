@@ -1,7 +1,9 @@
 # %%
+import copy
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Sequence
 
+import einx
 import torch
 from mrboost.density_compensation import (
     ramp_density_compensation,
@@ -21,11 +23,10 @@ from plum import dispatch
 
 @dataclass
 class BlackBoneMultiEchoArgs(GoldenAngleArgs):
-    start_spokes_to_discard: int = field(default=5)  # to reach the steady state
     # echo_num: int = field(default=3)
-    csm_lowk_hamming_ratio: Sequence[float] = field(default=(0.05, 0.05))
+    csm_lowk_hamming_ratio: Sequence[float] = field(default=(0.03, 0.03))
     density_compensation_func: Callable = field(default=ramp_density_compensation)
-    select_top_coils: int = field(default=0.95)
+    # select_top_coils: int = field(default=0.95)
     bipolar_readout: bool = field(default=True)
 
     def __post_init__(self):
@@ -38,6 +39,7 @@ def preprocess_raw_data(
 ):
     # assert recon_args.echo_num == raw_data.shape[0]
     echo, ch, kz, sp, len = raw_data.shape
+    # raw_data = raw_data[:, :, :, recon_args.start_spokes_to_discard :, :]
     raw_data_ = raw_data.clone()
     data_list = []
     for e in range(echo):
@@ -64,15 +66,43 @@ def mcnufft_reconstruct(
     *args,
     **kwargs,
 ):
-    return [
-        mcnufft_reconstruct.invoke(Dict[str, torch.Tensor], GoldenAngleArgs)(
-            e,
-            recon_args,
+    # return [
+    #     mcnufft_reconstruct.invoke(Dict[str, torch.Tensor], GoldenAngleArgs)(
+    #         e,
+    #         recon_args,
+    #         *args,
+    #         **kwargs,
+    #     )
+    #     for e in data_preprocessed
+    # ]
+    golden_angle_args = copy.copy(recon_args)
+    golden_angle_args.return_csm = True
+    golden_angle_args.return_multi_channel_image = True
+    golden_angle_args.im_size = (320, 320)
+
+    return_data = mcnufft_reconstruct.invoke(Dict[str, torch.Tensor], GoldenAngleArgs)(
+        data_preprocessed[0],
+        golden_angle_args,
+        *args,
+        **kwargs,
+    )
+    csm = return_data["csm"]
+    img_multi_ch = return_data["image_multi_ch"]
+    image_list = [einx.sum("[ch] slice w h", img_multi_ch * csm.conj())]
+
+    for e in range(1, len(data_preprocessed)):
+        return_data = mcnufft_reconstruct.invoke(
+            Dict[str, torch.Tensor], GoldenAngleArgs
+        )(
+            data_preprocessed[e],
+            golden_angle_args,
+            csm=csm,
             *args,
             **kwargs,
         )
-        for e in data_preprocessed
-    ]
+        image_list.append(return_data["image"])
+
+    return image_list
 
 
 @dispatch

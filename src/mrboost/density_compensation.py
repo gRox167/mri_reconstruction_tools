@@ -48,6 +48,8 @@ def voronoi_density_compensation(
     # im_size: Sequence[int],
     # grid_size: Optional[Sequence[int]] = None,
     device=torch.device("cpu"),
+    *args,
+    **kwargs,
 ):
     spoke_shape = eo.parse_shape(kspace_traj, "complx spokes_num spoke_len")
     kspace_traj = eo.rearrange(
@@ -118,8 +120,6 @@ def pipe_density_compensation(kspace_traj, im_size, *args, **wargs):
 
 def cihat_pipe_density_compensation(
     kspace_traj,
-    nufft_ob=None,
-    adjnufft_ob=None,
     im_size=(320, 320),
     device=torch.device("cpu"),
     *args,
