@@ -32,9 +32,7 @@ def area_based_radial_density_compensation(
     r = torch.norm(kspace_traj, dim=0)
 
     # Calculate delta_r (radial step size)
-    delta_r = (
-        2 * torch.pi / (length // 2)
-    )  # Assuming normalized k-space with radius 0.5
+    delta_r = 2 * torch.pi / length  # Assuming normalized k-space with radius pi
 
     # Create weights using the analytical formula
     w = torch.zeros_like(r)
@@ -45,6 +43,10 @@ def area_based_radial_density_compensation(
 
     # Handle r = 0 case: w = π/(4n)
     zero_mask = r == 0
+    # number of 0Hz should be equal to number of spokes
+    assert torch.sum(zero_mask) == n, (
+        "Number of 0Hz points should be equal to number of spokes, you may need to adjust the k-space trajectory."
+    )
     w[zero_mask] = torch.pi / (4 * n)
 
     return w
