@@ -579,7 +579,8 @@ def nufft_adj_2d_Inner(
     image_size: Sequence[int],
     norm_factor: Number | NoneType = None,
 ) -> Shaped[ComplexImage2D, "*channel"]:
-    # ic(kspace_data.shape)
+    
+    
     if norm_factor is None:
         norm_factor = np.sqrt(np.prod(image_size))
     return (
@@ -670,8 +671,8 @@ def nufft_adj_2d(
     image_size: Sequence[int],
     norm_factor: Number | NoneType = None,
 ) -> Shaped[ComplexImage2D, "..."]:
-    ic(kspace_traj.shape)# 5, 48,2 length
-    ic(kspace_data.shape)
+    ic(kspace_traj.shape)# # 2 length
+    ic(kspace_data.shape) # ch z length
     *batch_shape, _, length = kspace_traj.shape # * batch_shape = z, ch; _ = 2, length = length
     batch_size = np.prod(batch_shape, dtype=int)
     ic(batch_size) # 160
@@ -683,6 +684,7 @@ def nufft_adj_2d(
     # kspace_data = einx.rearrange("ch z len -> z ch len", kspace_data)
     kspace_data_batched = kspace_data.contiguous().view(batch_size, *channel_shape, length)
     ic(kspace_data_batched.shape)
+    kspace_traj_batched 
     output = torch.stack(
         [
             nufft_adj_2d_Inner(

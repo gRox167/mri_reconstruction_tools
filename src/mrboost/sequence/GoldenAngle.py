@@ -9,6 +9,7 @@ from mrboost.bias_field_correction import n4_bias_field_correction_3d_complex
 from mrboost.coil_sensitivity_estimation import get_csm_lowk_xyz
 from mrboost.density_compensation import (
     ramp_density_compensation,
+    voronoi_density_compensation
 )
 from mrboost.sequence.boilerplate import ReconArgs
 from plum import dispatch
@@ -17,7 +18,7 @@ from plum import dispatch
 @dataclass
 class GoldenAngleArgs(ReconArgs):
     csm_lowk_hamming_ratio: Sequence[float] = field(default=(0.05, 0.05))
-    density_compensation_func: Callable = field(default=ramp_density_compensation)
+    density_compensation_func: Callable = field(default=voronoi_density_compensation)
     bias_field_correction: bool = field(default=False)
     return_csm: bool = field(default=True)
     return_multi_channel_image: bool = field(default=False)
@@ -31,8 +32,8 @@ class GoldenAngleArgs(ReconArgs):
 def preprocess_raw_data(
     raw_data: torch.Tensor, recon_args: GoldenAngleArgs, z_dim_fft=True
 ):
-    if raw_data.device != torch.device(recon_args.device):
-        raw_data = raw_data.to(recon_args.device)
+    # if raw_data.device != torch.device(recon_args.device):
+    #     raw_data = raw_data.to(recon_args.device)
     kspace_raw_data = raw_data * recon_args.amplitude_scale_factor
     kspace_traj = comp.generate_golden_angle_radial_spokes_kspace_trajectory(
         kspace_raw_data.shape[2], recon_args.spoke_len
@@ -91,12 +92,13 @@ def mcnufft_reconstruct(
         recon_args.csm_lowk_hamming_ratio,
     )
 
-    kspace_density_compensation = recon_args.density_compensation_func(
-        kspace_traj,
-        im_size=recon_args.im_size,
-        normalize=False,
-        energy_match_radial_with_cartisian=True,
-    )
+    # kspace_density_compensation = recon_args.density_compensation_func(
+    #     kspace_traj,
+    #     im_size=recon_args.im_size,
+    #     normalize=False,
+    #     energy_match_radial_with_cartisian=True,
+    # )
+    kspace_density_compensation = recon_args.density_compensation_func(kspace_traj)
 
     if recon_args.filtered_density_compensation_ratio > 0.0:
         l = kspace_density_compensation.shape[-1]

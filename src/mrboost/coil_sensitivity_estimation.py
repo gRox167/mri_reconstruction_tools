@@ -9,6 +9,7 @@ from .density_compensation import (
     ramp_density_compensation_A,
     ramp_density_compensation_Inner1,
     ramp_density_compensation_Inner2,
+    voronoi_density_compensation,
 )
 
 from plum import dispatch, overload
@@ -171,7 +172,7 @@ def get_csm_lowk_xyz(
 @overload
 def get_csm_lowk_xyz(
     kspace_data:Shaped[KspaceSpokesData,"ch z"],
-    kspace_traj:KspaceSpokesTraj,
+    kspace_traj:KspaceSpokesTraj,# 2 sp length
     im_size,
     hamming_filter_ratio=[0.05, 0.05],
 ):
@@ -180,6 +181,8 @@ def get_csm_lowk_xyz(
     kspace_density_compensation_ = ramp_density_compensation_Inner2(
         kspace_traj, im_size,False, False
     ) 
+    # kspace_density_compensation_ = voronoi_density_compensation(
+    #     kspace_traj)
     # ic(kspace_density_compensation_.shape) # length
     spoke_len = kspace_data.shape[-1]
     W = comp.hanning_filter(
@@ -195,7 +198,6 @@ def get_csm_lowk_xyz(
         spoke_lowpass_filter_z,#dimension:z
         kspace_data,#dimension: ch z sp len
     )
-
     kspace_data = comp.ifft_1D(kspace_data , dim=1) #ifft along z. 
     kspace_data = kspace_data / kspace_data.abs().max() #normalize
     coil_sens = comp.nufft_adj_2d(

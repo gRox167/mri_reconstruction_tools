@@ -177,15 +177,15 @@ def to_nifti(
     to_nifty(img.to_numpy(), output_path, affine)
 
 
-@dispatch
-def to_nifty(img, input_path,output_path, affine=torch.eye(4, dtype=torch.float32)):
-    img1 = nib.load(input_path)
-    header = img1.header
-    nifty_image = nib.Nifti1Image(img, img1.affine, header=header)
-    nib.save(nifty_image, output_path)
-    print("Writed to: ", output_path)
-    # to_nifti(img, output_path, affine)
-    # print("Writed to: ", output_path)
+# @dispatch
+# def to_nifty(img, input_path,output_path, affine=torch.eye(4, dtype=torch.float32)):
+#     img1 = nib.load(input_path)
+#     header = img1.header
+#     nifty_image = nib.Nifti1Image(img, img1.affine, header=header)
+#     nib.save(nifty_image, output_path)
+#     print("Writed to: ", output_path)
+#     # to_nifti(img, output_path, affine)
+#     # print("Writed to: ", output_path)
 
 
 @overload
@@ -205,6 +205,35 @@ def to_nifti(
 ):
     to_nifti(img.to_numpy(), output_path, affine)
 
+@overload
+def to_nifti(
+    img: np.ndarray,
+    output_path: str | bytes | os.PathLike,
+    reference_nifti_path: str | bytes | os.PathLike,
+):
+    """
+    Write a new NIFTI file using the provided data array, reference NIFTI file's affine and header.
+
+    Parameters:
+    - data_array: numpy array, the data to be saved in the new NIFTI file.
+    - reference_nifti_file_path: str, path to the reference NIFTI file.
+    - output_file_path: str, path where the new NIFTI file will be saved.
+    """
+    # Load the reference NIFTI file
+    reference_image = nib.load(reference_nifti_path)
+    reference_image.header.set_data_dtype(np.float32)
+
+    # Create a new NIFTI image using the data array, reference affine, and header
+    new_image = nib.Nifti1Image(img, reference_image.affine, reference_image.header)
+
+    # Ensure the output directory exists
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Save the new NIFTI image to the specified output path
+    nib.save(new_image, output_path)
+
+    print("Writed to: ", output_path)
 
 @dispatch
 def to_nifti(img, output_path, affine):

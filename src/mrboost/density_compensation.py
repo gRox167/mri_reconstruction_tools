@@ -51,7 +51,7 @@ def voronoi_density_compensation(
     kspace_traj: torch.Tensor,
     # im_size: Sequence[int],
     # grid_size: Optional[Sequence[int]] = None,
-    device=torch.device("cpu"),
+    # device=torch.device("cpu"),
 ):
     spoke_shape = eo.parse_shape(kspace_traj, "complx spokes_num spoke_len")
     kspace_traj = eo.rearrange(
@@ -59,7 +59,8 @@ def voronoi_density_compensation(
         "complx spokes_num spoke_len -> complx (spokes_num spoke_len)",
     )
 
-    kspace_traj = torch.complex(kspace_traj[0], kspace_traj[1]).contiguous().to(device)
+    # kspace_traj = torch.complex(kspace_traj[0], kspace_traj[1]).contiguous().to(device)
+    kspace_traj = torch.complex(kspace_traj[0], kspace_traj[1]).contiguous()
     with jax.default_device(jax.devices("cpu")[0]):
         kspace_traj = torch_to_jax(kspace_traj)
         kspace_traj = (
