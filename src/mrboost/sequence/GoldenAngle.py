@@ -7,9 +7,8 @@ import torch
 from mrboost import computation as comp
 from mrboost.bias_field_correction import n4_bias_field_correction_3d_complex
 from mrboost.coil_sensitivity_estimation import get_csm_lowk_xyz
-from mrboost.density_compensation import (
-    ramp_density_compensation,
-    voronoi_density_compensation
+from mrboost.density_compensation.area_based_radial import (
+    area_based_radial_density_compensation,
 )
 from mrboost.sequence.boilerplate import ReconArgs
 from plum import dispatch
@@ -17,8 +16,11 @@ from plum import dispatch
 
 @dataclass
 class GoldenAngleArgs(ReconArgs):
-    csm_lowk_hamming_ratio: Sequence[float] = field(default=(0.05, 0.05))
-    density_compensation_func: Callable = field(default=voronoi_density_compensation)
+    start_spokes_to_discard: int = field(default=0)  # to reach the steady state
+    csm_lowk_hamming_ratio: Sequence[float] = field(default=(0.03, 0.03))
+    density_compensation_func: Callable = field(
+        default=area_based_radial_density_compensation
+    )
     bias_field_correction: bool = field(default=False)
     return_csm: bool = field(default=True)
     return_multi_channel_image: bool = field(default=False)
@@ -84,26 +86,37 @@ def mcnufft_reconstruct(
         ],
         data_preprocessed["kspace_traj"][:, recon_args.start_spokes_to_discard :, :],
     )
+    # print(kspace_data_centralized.shape)
+    # spoke_len: int = kspace_data_centralized.shape[3]
 
-    csm = get_csm_lowk_xyz(
-        kspace_data_centralized,
+    # if csm is not in **kwargs, calculate it
+    if "csm" not in kwargs:
+        csm = get_csm_lowk_xyz(
+            kspace_data_centralized,
+            kspace_traj,
+            recon_args.im_size,
+            recon_args.csm_lowk_hamming_ratio,
+        )
+        # csm = get_csm_lowk_xyz(
+        #     kspace_data_centralized,
+        #     kspace_traj,
+        #     recon_args.im_size,
+        #     recon_args.csm_lowk_hamming_ratio,
+        # )
+    else:
+        csm = kwargs["csm"]
+        print("no csm calculated")
+    kspace_density_compensation = recon_args.density_compensation_func(
         kspace_traj,
-        recon_args.im_size,
-        recon_args.csm_lowk_hamming_ratio,
+        im_size=recon_args.im_size,
+        normalize=False,
+        energy_match_radial_with_cartisian=True,
     )
 
-    # kspace_density_compensation = recon_args.density_compensation_func(
-    #     kspace_traj,
-    #     im_size=recon_args.im_size,
-    #     normalize=False,
-    #     energy_match_radial_with_cartisian=True,
-    # )
-    kspace_density_compensation = recon_args.density_compensation_func(kspace_traj)
-
     if recon_args.filtered_density_compensation_ratio > 0.0:
-        l = kspace_density_compensation.shape[-1]
-        front_idx = round((l * recon_args.filtered_density_compensation_ratio) / 2)
-        back_idx = round(l * recon_args.filtered_density_compensation_ratio / 2)
+        length = kspace_density_compensation.shape[-1]
+        front_idx = round((length * recon_args.filtered_density_compensation_ratio) / 2)
+        back_idx = round(length * recon_args.filtered_density_compensation_ratio / 2)
         kspace_density_compensation[:, :front_idx] = kspace_density_compensation[
             :, front_idx : front_idx + 1
         ]
@@ -111,12 +124,13 @@ def mcnufft_reconstruct(
             :, -back_idx : -back_idx + 1
         ]
 
-    bottom = torch.maximum(
-        kspace_density_compensation[:, 320], kspace_density_compensation[:, 319]
-    )
-    kspace_density_compensation[:, 320] = bottom
-    kspace_density_compensation[:, 319] = bottom
-    print(kspace_density_compensation[4, 319:321])
+    # bottom = torch.maximum(
+    #     kspace_density_compensation[:, spoke_len // 2],
+    #     kspace_density_compensation[:, spoke_len // 2 - 1],
+    # )
+    # kspace_density_compensation[:, spoke_len // 2] = bottom
+    # kspace_density_compensation[:, spoke_len // 2 - 1] = bottom
+    # print(kspace_density_compensation[4, spoke_len // 2 - 1 : spoke_len // 2 + 1])
 
     kspace_data = comp.radial_spokes_to_kspace_point(
         kspace_data_z * kspace_density_compensation
@@ -131,6 +145,7 @@ def mcnufft_reconstruct(
         # 2 because of readout_oversampling
     )
     img = einx.sum("[ch] slice w h", img_multi_ch * csm.conj())
+    # img = einx.sum("[ch] slice w h", img_multi_ch * csm)
 
     if recon_args.bias_field_correction:
         img = n4_bias_field_correction_3d_complex(img)

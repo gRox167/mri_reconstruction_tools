@@ -169,9 +169,9 @@ class BlackBoneStackOfStars_Subset_4DL_LowResZ(Reconstructor):
             if isinstance(self.which_slice, int)
             else self.which_slice
         )
-        assert (
-            self.which_slice[1] <= self.slice_num
-        ), f"Try to set {self.which_slice[1]=} <= {self.slice_num=}"
+        assert self.which_slice[1] <= self.slice_num, (
+            f"Try to set {self.which_slice[1]=} <= {self.slice_num=}"
+        )
         self.slice_to_recon = [i for i in range(self.slice_num)][
             slice(*self.which_slice)
         ]
@@ -327,9 +327,9 @@ class CAPTURE_VarW_NQM_DCE_PriorInj(Reconstructor):
             if isinstance(self.which_slice, int)
             else self.which_slice
         )
-        assert (
-            self.which_slice[1] <= self.slice_num
-        ), f"Try to set {self.which_slice[1]=} <= {self.slice_num=}"
+        assert self.which_slice[1] <= self.slice_num, (
+            f"Try to set {self.which_slice[1]=} <= {self.slice_num=}"
+        )
         self.slice_to_recon = [i for i in range(self.slice_num)][
             slice(*self.which_slice)
         ]
@@ -532,9 +532,9 @@ class CAPTURE_VarW_NQM_DCE_PostInj(Reconstructor):
             if isinstance(self.which_slice, int)
             else self.which_slice
         )
-        assert (
-            self.which_slice[1] <= self.slice_num
-        ), f"Try to set {self.which_slice[1]=} <= {self.slice_num=}"
+        assert self.which_slice[1] <= self.slice_num, (
+            f"Try to set {self.which_slice[1]=} <= {self.slice_num=}"
+        )
         self.slice_to_recon = [i for i in range(self.slice_num)][
             slice(*self.which_slice)
         ]

@@ -64,9 +64,11 @@ def batch_process(batch_size: int, device: torch.device, batch_dim=0):
 
 
 def hamming_filter(nonzero_width_percent: float, width: int) -> np.ndarray:
-    nonzero_width = round(width * nonzero_width_percent) #640*0,05=32
-    pad_width_L = round((width - nonzero_width) // 2) # (640-32)/2=304
-    pad_width_R = width - nonzero_width - pad_width_L # 640-32-304=304
+    nonzero_width = round(width * nonzero_width_percent)
+    nonzero_width = nonzero_width - nonzero_width % 2
+    # print(nonzero_width)
+    pad_width_L = round((width - nonzero_width) // 2)
+    pad_width_R = width - nonzero_width - pad_width_L
     hamming_weights = np.float32(np.hamming(nonzero_width))
     W = np.pad(hamming_weights, pad_width=(pad_width_L, pad_width_R))
     return W
@@ -158,7 +160,7 @@ def centralize_kspace(
     # center_in_acquire_length is index, here +1 to turn into quantity
     front_padding = round(full_length / 2 - (center_idx_in_acquire_lenth + 1))
     # the dc point can be located at length/2 or length/2+1, when length is even, cihat use length/2+1
-    # front_padding += 1
+    front_padding += 1
     pad_length = [0 for i in range(2 * len(kspace_data.shape))]
     pad_length[dim * 2 + 1], pad_length[dim * 2] = (
         front_padding,
@@ -212,7 +214,8 @@ def generate_golden_angle_radial_spokes_kspace_trajectory(spokes_num, spoke_leng
         torch.Tensor: A 2D k-space trajectory of shape (2, spokes_num, spoke_length).
     """
     # Golden angle in radians
-    KWIC_GOLDENANGLE = (np.sqrt(5) - 1) / 2 * np.pi  # Golden angle in radians
+    # KWIC_GOLDENANGLE = (np.sqrt(5) - 1) / 2 * np.pi  # Golden angle in radians
+    KWIC_GOLDENANGLE = 111.246117975 / 360 * 2 * np.pi  # Golden angle in radians
 
     # Create the k-space trajectory for each spoke
     # k = torch.linspace(-0.5, 0.5 - 1 / spoke_length, spoke_length)
@@ -804,6 +807,13 @@ def radial_spokes_to_kspace_point(
     | Shaped[KspaceSpokesTraj, "..."]
     | Shaped[KspaceSpokesTraj3D, "..."],
 ):
+    """
+    Convert kspace data from radial spokes to kspace point format.
+    Args:
+        x: kspace data in radial spokes format
+    Returns:
+        kspace data in kspace point format
+    """
     return einx.rearrange(
         "... middle len -> ... (middle len)",
         x,
@@ -811,9 +821,27 @@ def radial_spokes_to_kspace_point(
 
 
 def kspace_point_to_radial_spokes(
-    x: Shaped[KspaceData, "..."] | Shaped[KspaceSpokesTraj3D, "..."],
-    spoke_len: int,
+    x: Shaped[KspaceData, "..."]
+    | Shaped[KspaceTraj, "..."]
+    | Shaped[KspaceTraj3D, "..."],
+    spoke_len: int | None = None,
+    spoke_num: int | None = None,
 ):
+    """
+    Convert kspace data from kspace point to radial spokes format.
+    Args:
+       x: kspace data in kspace point format
+       spoke_len: length of each spoke
+       spoke_num: number of spokes
+    Returns:
+        kspace data in radial spokes format
+    Raises:
+        ValueError: if neither spoke_len nor spoke_num is provided
+    """
+    if spoke_len is None and spoke_num is None:
+        raise ValueError("Either spoke_len or spoke_num must be provided")
+    if spoke_len is None:
+        spoke_len = x.shape[-1] // spoke_num
     return einx.rearrange(
         "... (middle len) -> ... middle len",
         x,

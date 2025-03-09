@@ -42,3 +42,6 @@ allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mrboost"]
+
+[tool.ruff]
+lint.ignore = ["F722", "F821", "F811"]

@@ -94,12 +94,14 @@ def get_csm_lowk_xy(
     hamming_filter_ratio=0.05,
 ):
     ch, z, sp, spoke_len = kspace_data.shape
+
     kspace_density_compensation_ = ramp_density_compensation(
         comp.radial_spokes_to_kspace_point(kspace_traj), im_size
     )
     kspace_density_compensation_ = comp.kspace_point_to_radial_spokes(
         kspace_density_compensation_, spoke_len
     )
+
     spoke_len = kspace_data.shape[-1]
     W = comp.hanning_filter(nonzero_width_percent=hamming_filter_ratio, width=spoke_len)
     spoke_lowpass_filter_xy = torch.from_numpy(W)
@@ -119,7 +121,7 @@ def get_csm_lowk_xy(
 
     img_sens_SOS = ops.sqrt(einx.sum("[ch] z h w", abs(coil_sens) ** 2))
     coil_sens = coil_sens / img_sens_SOS
-    coil_sens[ops.isnan(coil_sens)] = 0  # optional
+    # coil_sens[ops.isnan(coil_sens)] = 0  # optional
     # coil_sens /= coil_sens.abs().max()
     return coil_sens
 
@@ -464,6 +466,7 @@ def lowk_xyz(
     coil_sens = coil_sens / img_sens_SOS
     coil_sens[torch.isnan(coil_sens)] = 0  # optional
     # coil_sens /= coil_sens.abs().max()
+
     return coil_sens
 
 
