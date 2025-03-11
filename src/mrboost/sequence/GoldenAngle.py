@@ -12,7 +12,7 @@ from mrboost.density_compensation.area_based_radial import (
 )
 from mrboost.sequence.boilerplate import ReconArgs
 from plum import dispatch
-
+from mrboost.density_compensation_1 import ramp_density_compensation
 
 @dataclass
 class GoldenAngleArgs(ReconArgs):
@@ -21,6 +21,7 @@ class GoldenAngleArgs(ReconArgs):
     density_compensation_func: Callable = field(
         default=area_based_radial_density_compensation
     )
+    # density_compensation_func: Callable = field(default
     bias_field_correction: bool = field(default=False)
     return_csm: bool = field(default=True)
     return_multi_channel_image: bool = field(default=False)

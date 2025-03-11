@@ -1,4 +1,4 @@
-# import ants
+import ants
 import numpy as np
 import torch
 
@@ -19,9 +19,9 @@ def n4_bias_field_correction_3d_complex(
     # Extract magnitude from complex tensor
     magnitude = x.abs().cpu().numpy().astype(np.float32)
 
-    # Convert to ANTs image (ANTs requires channel-first format)
+    # Convert to ANTs image (ANTs requires channel-first format) current: 
     ants_img = ants.from_numpy(magnitude.transpose(2, 1, 0))  # ANTs uses (W,H,D) format
-
+    
     # Perform N4 bias field correction
     corrected = ants.n4_bias_field_correction(
         ants_img,

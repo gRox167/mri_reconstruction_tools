@@ -178,7 +178,7 @@ def ramp_density_compensation_Inner1(
         impulse = torch.zeros(
             (im_size[0], im_size[1]), dtype=torch.complex64, device=w.device
         ) #create a [320,320] all 0 matrix
-        impulse[im_size[0] // 2, im_size[1] // 2] = 1 # make the center as 1
+        #impulse[im_size[0] // 2, im_size[1] // 2] = 1 # make the center as 1
         wmax = (
             nufft_adj_2d_Inner(
                 w * nufft_2d(impulse, kspace_traj, im_size),

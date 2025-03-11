@@ -3,7 +3,7 @@ import numpy as np
 from icecream import ic
 # import sigpy as sp
 from . import computation as comp
-from .density_compensation import (
+from .density_compensation_1 import (
     ramp_density_compensation,
     ramp_density_compensation_batched,
     ramp_density_compensation_A,
@@ -22,6 +22,9 @@ from dlboost.utils.type_utils import (
 from jaxtyping import Complex, Float, Shaped
 from torch import Tensor
 import torch
+from mrboost.density_compensation.area_based_radial import (
+    area_based_radial_density_compensation,
+)
 # from jaxtyping import Shaped
 def fft(x, ax):
     return np.fft.fftshift(
@@ -180,9 +183,12 @@ def get_csm_lowk_xyz(
 ):
     ch,z, sp, spoke_len = kspace_data.shape #ch,kz,spokes,spoke_len
     # ic(kspace_data.shape)
-    kspace_density_compensation_ = ramp_density_compensation_Inner2(
-        kspace_traj, im_size,False, False
-    ) 
+    # kspace_density_compensation_ = ramp_density_compensation_Inner2(
+    #     kspace_traj, im_size,False, False
+    # ) 
+    kspace_density_compensation_ = area_based_radial_density_compensation(
+        kspace_traj, im_size, False, True)
+
     # kspace_density_compensation_ = voronoi_density_compensation(
     #     kspace_traj)
     # ic(kspace_density_compensation_.shape) # length

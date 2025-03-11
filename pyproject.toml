@@ -23,6 +23,7 @@ dependencies = [
     "matplotlib>=3.9.0",
     "plum-dispatch>=2.3.6",
     "cufinufft>=2.3.0",
+    "antspyx>=0.5.4",
 ]
 readme = "README.md"
 requires-python = ">= 3.8"
