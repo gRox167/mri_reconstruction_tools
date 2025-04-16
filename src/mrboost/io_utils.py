@@ -3,6 +3,7 @@ import time
 from copy import deepcopy
 from glob import glob
 from pathlib import Path
+from typing import Literal
 
 import einx
 import h5py
@@ -15,6 +16,7 @@ import zarr
 from einops import parse_shape
 from jaxtyping import ArrayLike
 from plum import dispatch, overload
+from torch import Tensor
 from xarray import DataArray
 
 
@@ -22,8 +24,14 @@ def torch_to_nii_direction(data):
     return einx.rearrange("d h w -> w h d", data.flip(0, 2))
 
 
-def nii_to_torch_direction(data):
+@dispatch
+def nii_to_torch_direction(data: Tensor):
     return einx.rearrange("w h d -> d h w", data).flip(0, 2)
+
+
+@dispatch
+def nii_to_torch_direction(data: ArrayLike):
+    return np.flip(einx.rearrange("w h d -> d h w", data), (0, 2))
 
 
 def plot_3D(
@@ -76,7 +84,11 @@ def plot_3D(
     return fig, axes
 
 
-def get_raw_data(dat_file_location: Path, multi_echo=False):
+def get_raw_data(
+    dat_file_location: Path,
+    multi_echo=False,
+    sampling_pattern: Literal["Cartesian", "radial"] = "radial",
+):
     from twixtools import map_twix, read_twix
 
     print("dat_file_location is ", dat_file_location)
@@ -98,15 +110,25 @@ def get_raw_data(dat_file_location: Path, multi_echo=False):
             "echo par lin cha col -> echo cha par lin col",
             raw_data,
         )
-        shape_dict = parse_shape(
-            raw_data, "echo_num ch_num partition_num spoke_num spoke_len"
-        )
+        if sampling_pattern == "Cartesian":
+            shape_dict = parse_shape(
+                raw_data, "echo_num ch_num partition_num line_num col_num"
+            )
+        else:
+            shape_dict = parse_shape(
+                raw_data, "echo_num ch_num partition_num spoke_num spoke_len"
+            )
     else:
         raw_data = einx.rearrange(
             "par lin cha col -> cha par lin col",
             raw_data,
         )
-        shape_dict = parse_shape(raw_data, "ch_num partition_num spoke_num spoke_len")
+        if sampling_pattern == "Cartesian":
+            shape_dict = parse_shape(raw_data, "ch_num partition_num line_num col_num")
+        else:
+            shape_dict = parse_shape(
+                raw_data, "ch_num partition_num spoke_num spoke_len"
+            )
     print(shape_dict)
     return torch.from_numpy(raw_data), shape_dict, mdh, twixobj
 

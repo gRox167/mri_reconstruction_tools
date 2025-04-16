@@ -4,6 +4,8 @@ from typing import Callable, Dict, Sequence
 import einx
 import numpy as np
 import torch
+from plum import dispatch
+
 from mrboost import computation as comp
 from mrboost.bias_field_correction import n4_bias_field_correction_3d_complex
 from mrboost.coil_sensitivity_estimation import get_csm_lowk_xyz
@@ -11,7 +13,6 @@ from mrboost.density_compensation.area_based_radial import (
     area_based_radial_density_compensation,
 )
 from mrboost.sequence.boilerplate import ReconArgs
-from plum import dispatch
 
 
 @dataclass
@@ -146,7 +147,6 @@ def mcnufft_reconstruct(
         # 2 because of readout_oversampling
     )
     img = einx.sum("[ch] slice w h", img_multi_ch * csm.conj())
-    # img = einx.sum("[ch] slice w h", img_multi_ch * csm)
 
     if recon_args.bias_field_correction:
         img = n4_bias_field_correction_3d_complex(img)

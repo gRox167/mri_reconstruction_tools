@@ -77,8 +77,6 @@ def mcnufft_reconstruct(
     # ]
     golden_angle_args = copy.copy(recon_args)
     golden_angle_args.return_csm = True
-    golden_angle_args.return_multi_channel_image = True
-    golden_angle_args.im_size = (320, 320)
 
     return_data = mcnufft_reconstruct.invoke(Dict[str, torch.Tensor], GoldenAngleArgs)(
         data_preprocessed[0],
@@ -87,8 +85,7 @@ def mcnufft_reconstruct(
         **kwargs,
     )
     csm = return_data["csm"]
-    img_multi_ch = return_data["image_multi_ch"]
-    image_list = [einx.sum("[ch] slice w h", img_multi_ch * csm.conj())]
+    image_list = [return_data["image"]]
 
     for e in range(1, len(data_preprocessed)):
         return_data = mcnufft_reconstruct.invoke(

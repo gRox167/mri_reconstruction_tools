@@ -17,3 +17,6 @@ Image2D = Float[Array, "h w"]
 Image3D = Shaped[Image2D, "d"]
 ComplexImage2D = Complex[Array, "h w"] | Image2D
 ComplexImage3D = Shaped[ComplexImage2D, "d"]
+
+MotionVectorField2D = Shaped[Image2D, "2"]
+MotionVectorField3D = Shaped[Image3D, "3"]

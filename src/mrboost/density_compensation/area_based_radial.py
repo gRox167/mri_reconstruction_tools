@@ -60,7 +60,7 @@ def area_based_radial_density_compensation(
     *args,
     **kwargs,
 ) -> torch.Tensor:
-    kj = kspace_point_to_radial_spokes(kspace_traj, spoke_num)
+    kj = kspace_point_to_radial_spokes(kspace_traj, spoke_len, spoke_num)
     w = area_based_radial_density_compensation(kj)
     return radial_spokes_to_kspace_point(w)
 
@@ -85,16 +85,9 @@ def area_based_radial_density_compensation(
 def area_based_radial_density_compensation(
     kspace_traj: Shaped[KspaceSpokesTraj, "b"],  # noqa: F821
     im_size: Sequence[int] = (320, 320),
-    normalize: bool = True,
-    energy_match_radial_with_cartisian: bool = False,
 ):
     return torch.stack(
-        [
-            area_based_radial_density_compensation(
-                traj, im_size, normalize, energy_match_radial_with_cartisian
-            )
-            for traj in kspace_traj
-        ]
+        [area_based_radial_density_compensation(traj, im_size) for traj in kspace_traj]
     )
 
 

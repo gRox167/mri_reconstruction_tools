@@ -2,17 +2,18 @@ from dataclasses import dataclass, field
 from typing import Dict
 
 import torch
+from plum import dispatch
+
 from mrboost.sequence.GoldenAngle import (
     GoldenAngleArgs,
     mcnufft_reconstruct,
     preprocess_raw_data,
 )
-from plum import dispatch
 
 
 @dataclass
 class BlackBoneStationaryArgs(GoldenAngleArgs):
-    start_spokes_to_discard: int = field(default=5)  # to reach the steady state
+    start_spokes_to_discard: int = field(default=0)  # to reach the steady state
 
     def __post_init__(self):
         super().__post_init__()
