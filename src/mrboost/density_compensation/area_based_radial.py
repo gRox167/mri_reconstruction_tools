@@ -30,7 +30,6 @@ def area_based_radial_density_compensation(
     _, n, length = kspace_traj.shape
     # Calculate radius (distance from k-space center)
     r = torch.norm(kspace_traj, dim=0)
-
     # Calculate delta_r (radial step size)
     delta_r = 2 * torch.pi / length  # Assuming normalized k-space with radius pi
 

@@ -454,45 +454,63 @@ def nufft_2d_batched(
     # Stack the results
     return torch.stack(outputs, dim=0)
 
-# def nufft_2d_loss(
-#     images: Shaped[ComplexImage2D, "..."],
-#     kspace_traj: Shaped[KspaceTraj, "... batch"],
-#     image_size: Sequence[int],
-#     norm_factor: Number | NoneType = None,
-# ) -> Shaped[KspaceData, "..."]:
-#     *batch_shape, _, length = kspace_traj.shape
-#     batch_size = np.prod(batch_shape, dtype=int)
-#     kspace_traj_batched = kspace_traj.view(-1, 2, length)
 
-#     *channel_shape, h, w = images.shape[len(batch_shape) :]
-#     images = einx.rearrange("b ch z h w -> b z ch h w", images)
-#     images_batched = images.view(batch_size, *channel_shape, h, w)
-
-#     output = torch.stack(
-#         [
-#             nufft_2d(
-#                 images_batched[i],
-#                 kspace_traj_batched[i],
-#                 image_size,
-#                 norm_factor,
-#             )
-#             for i in range(batch_size)
-#         ],
-#     )
-#     return output.view(*batch_shape, *channel_shape, length)
-        
-
-@overload
-def nufft_2d(
+def nufft_2d_batched(
     images: Shaped[ComplexImage2D, "..."],
     kspace_traj: Shaped[KspaceTraj, "... batch"],
     image_size: Sequence[int],
     norm_factor: Number | NoneType = None,
+    max_workers: int = 50,
 ) -> Shaped[KspaceData, "..."]:
+    """
+    Parallel calls to `nufft_adj_2d` for each item in the batch, using threads.
+    Returns a stacked output of shape [B, ...].
+    
+    Args:
+      kspace_data_batched: batched data, shape [B, ...], each slice is for one sample
+      kspace_traj_batched: shape [B, 2, ...] or [B, ...], each slice for one sample
+      image_size: (H, W)
+      norm_factor: normalization factor
+      max_workers: how many worker threads to run in parallel
+    """
+
     *batch_shape, _, length = kspace_traj.shape
     batch_size = np.prod(batch_shape, dtype=int)
     kspace_traj_batched = kspace_traj.view(-1, 2, length)
 
+    *channel_shape, h, w = images.shape[len(batch_shape) :]
+    images_batched = images.view(batch_size, *channel_shape, h, w)
+    outputs = [None] * batch_size
+
+    def worker(i: int):
+        # Each thread processes one slice:
+        return nufft_adj_2d(
+            images_batched[i],
+            kspace_traj_batched[i],
+            image_size,
+            norm_factor,
+        )
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(worker, i) for i in range(batch_size)]
+        for i, f in enumerate(futures):
+            outputs[i] = f.result()
+
+    # Stack the results
+    return torch.stack(outputs, dim=0)
+
+
+@overload
+def nufft_2d(
+    images: Shaped[ComplexImage2D, "..."], # ,,, h w
+    kspace_traj: Shaped[KspaceTraj, "... batch"], # ,, batch 2, sp*len
+    image_size: Sequence[int],
+    norm_factor: Number | NoneType = None,
+) -> Shaped[KspaceData, "..."]:
+    *batch_shape, _, length = kspace_traj.shape # ..batch, 2, sp*len
+    batch_size = np.prod(batch_shape, dtype=int) ## z*1,2 sp*len
+    kspace_traj_batched = kspace_traj.view(-1, 2, length) # combine the first two dimensions
+ 
     *channel_shape, h, w = images.shape[len(batch_shape) :]
     images_batched = images.contiguous().view(batch_size, *channel_shape, h, w) # 160, 320,320
     output = torch.stack(
@@ -616,7 +634,6 @@ def nufft_adj_2d(
     )
     
     *channel_shape, length = kspace_data.shape[len(batch_shape) :] # kspace_data.shape[2 :]
-    # kspace_data = einx.rearrange("ch z len -> z ch len", kspace_data)
     kspace_data_batched = kspace_data.contiguous().view(batch_size, *channel_shape, length)
     ic(kspace_data_batched.shape)
     output = torch.stack(
@@ -637,7 +654,7 @@ def nufft_adj_2d(
 @overload
 def nufft_adj_2d(
     kspace_data: Shaped[KspaceData, "b ch z"],# ch z leng
-    kspace_traj: Shaped[KspaceTraj, "b"], # z ch 2 length
+    kspace_traj: Shaped[KspaceTraj, "b"], # z 2 length
     image_size: Sequence[int],
     norm_factor: Number | NoneType = None,
 ) -> Shaped[ComplexImage2D, "..."]:
@@ -670,7 +687,7 @@ def nufft_adj_2d(
 @overload
 def nufft_adj_2d(
     kspace_data: Shaped[KspaceData, "ch z"],# ch z leng
-    kspace_traj: KspaceTraj, # z ch 2 length
+    kspace_traj: KspaceTraj, # z 2 length
     image_size: Sequence[int],
     norm_factor: Number | NoneType = None,
 ) -> Shaped[ComplexImage2D, "..."]:

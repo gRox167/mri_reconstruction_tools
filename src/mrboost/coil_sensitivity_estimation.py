@@ -136,11 +136,9 @@ def get_csm_lowk_xyz(
     hamming_filter_ratio=[0.05, 0.1],
 ):
     ch,z, sp, spoke_len = kspace_data.shape #ch,kz,spokes,spoke_len
-    # ic(kspace_data.shape)
     kspace_density_compensation_ = ramp_density_compensation_Inner2(
         kspace_traj[1,1,:,:,:], im_size,False, False
     ) 
-    # ic(kspace_density_compensation_.shape) # length
     spoke_len = kspace_data.shape[-1]
     W = comp.hanning_filter(
         nonzero_width_percent=hamming_filter_ratio[0], width=spoke_len
@@ -182,16 +180,9 @@ def get_csm_lowk_xyz(
     hamming_filter_ratio=[0.05, 0.05],
 ):
     ch,z, sp, spoke_len = kspace_data.shape #ch,kz,spokes,spoke_len
-    # ic(kspace_data.shape)
-    # kspace_density_compensation_ = ramp_density_compensation_Inner2(
-    #     kspace_traj, im_size,False, False
-    # ) 
     kspace_density_compensation_ = area_based_radial_density_compensation(
-        kspace_traj, im_size, False, True)
+        kspace_traj, im_size)
 
-    # kspace_density_compensation_ = voronoi_density_compensation(
-    #     kspace_traj)
-    # ic(kspace_density_compensation_.shape) # length
     spoke_len = kspace_data.shape[-1]
     W = comp.hanning_filter(
         nonzero_width_percent=hamming_filter_ratio[0], width=spoke_len
@@ -199,7 +190,6 @@ def get_csm_lowk_xyz(
     spoke_lowpass_filter_xy = torch.from_numpy(W)
     Wz = comp.hanning_filter(nonzero_width_percent=hamming_filter_ratio[1], width=z) #kz
     spoke_lowpass_filter_z = torch.from_numpy(Wz)
-    # kspace_data =  kspace_data*spoke_lowpass_filter_xy
     kspace_data = einx.multiply(
         "len, z, ch z sp len -> ch z sp len",
         spoke_lowpass_filter_xy, #dimension: len
@@ -219,7 +209,6 @@ def get_csm_lowk_xyz(
 
     coil_sens = coil_sens / img_sens_SOS # ch z h w / z h w;
     coil_sens[torch.isnan(coil_sens)] = 0  # optional
-    # coil_sens /= coil_sens.abs().max()
     return coil_sens
 
 @dispatch

@@ -27,7 +27,6 @@ class BlackBoneMultiEchoArgs(GoldenAngleArgs):
         default=area_based_radial_density_compensation
     )
     bipolar_readout: bool = field(default=False)
-    # select_top_coils: int = field(default=0.95)
 
     def __post_init__(self):
         super().__post_init__()

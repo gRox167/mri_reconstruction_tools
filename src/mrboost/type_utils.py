@@ -16,4 +16,4 @@ KspaceSpokesTraj3D = Float[Array, "3 spokes_num spoke_length"]
 Image2D = Float[Array, "h w"]
 Image3D = Shaped[Image2D, "d"]
 ComplexImage2D = Complex[Array, "h w"] | Image2D
-ComplexImage3D = Shaped[ComplexImage2D, "d"]
+ComplexImage3D = Shaped[ComplexImage2D, "d"] # d h w 

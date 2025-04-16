@@ -21,7 +21,6 @@ class GoldenAngleArgs(ReconArgs):
     density_compensation_func: Callable = field(
         default=area_based_radial_density_compensation
     )
-    # density_compensation_func: Callable = field(default
     bias_field_correction: bool = field(default=False)
     return_csm: bool = field(default=True)
     return_multi_channel_image: bool = field(default=False)
@@ -78,7 +77,7 @@ def mcnufft_reconstruct(
     *args,
     **kwargs,
 ):
-    kspace_data_centralized, kspace_data_z, kspace_traj = (
+    kspace_data_centralized,kspace_data_z, kspace_traj = (
         data_preprocessed["kspace_data_centralized"][
             :, :, recon_args.start_spokes_to_discard :, :
         ],
@@ -87,10 +86,7 @@ def mcnufft_reconstruct(
         ],
         data_preprocessed["kspace_traj"][:, recon_args.start_spokes_to_discard :, :],
     )
-    # print(kspace_data_centralized.shape)
-    # spoke_len: int = kspace_data_centralized.shape[3]
-
-    # if csm is not in **kwargs, calculate it
+    
     if "csm" not in kwargs:
         csm = get_csm_lowk_xyz(
             kspace_data_centralized,
@@ -98,12 +94,6 @@ def mcnufft_reconstruct(
             recon_args.im_size,
             recon_args.csm_lowk_hamming_ratio,
         )
-        # csm = get_csm_lowk_xyz(
-        #     kspace_data_centralized,
-        #     kspace_traj,
-        #     recon_args.im_size,
-        #     recon_args.csm_lowk_hamming_ratio,
-        # )
     else:
         csm = kwargs["csm"]
         print("no csm calculated")
@@ -125,13 +115,6 @@ def mcnufft_reconstruct(
             :, -back_idx : -back_idx + 1
         ]
 
-    # bottom = torch.maximum(
-    #     kspace_density_compensation[:, spoke_len // 2],
-    #     kspace_density_compensation[:, spoke_len // 2 - 1],
-    # )
-    # kspace_density_compensation[:, spoke_len // 2] = bottom
-    # kspace_density_compensation[:, spoke_len // 2 - 1] = bottom
-    # print(kspace_density_compensation[4, spoke_len // 2 - 1 : spoke_len // 2 + 1])
 
     kspace_data = comp.radial_spokes_to_kspace_point(
         kspace_data_z * kspace_density_compensation
