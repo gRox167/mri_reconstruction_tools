@@ -4,13 +4,14 @@ from typing import Callable, Dict
 import einx
 import numpy as np
 import torch
+from plum import dispatch
+
 from mrboost import computation as comp
 from mrboost.coil_sensitivity_estimation import get_csm_lowk_xyz
 from mrboost.density_compensation.area_based_radial import (
     area_based_radial_density_compensation,
 )
 from mrboost.sequence.GoldenAngle import GoldenAngleArgs
-from plum import dispatch
 
 # from icecream import ic
 
@@ -26,9 +27,9 @@ class CAPTURE_VarW_NQM_DCE_PostInj_Args(GoldenAngleArgs):
     percentW: float = 12.5
     contra_num: int = field(init=False)
     start_spokes_to_discard: int = field(init=False)  # to reach the steady state
-    binning_spoke_slice: slice = field(init=False)
     binning_start_idx: int = field(init=False)
     binning_end_idx: int = field(init=False)
+    # binning_spoke_slice: slice = field(init=False)
     # which_slice: Union[int, Sequence] = -1,
     # which_contra: Union[int, Sequence] = -1,
     # which_phase: Union[int, Sequence] = -1,
@@ -71,24 +72,31 @@ class CAPTURE_VarW_NQM_DCE_PostInj_Args(GoldenAngleArgs):
 
 @dispatch
 def preprocess_raw_data(
-    raw_data: torch.Tensor, recon_args: CAPTURE_VarW_NQM_DCE_PostInj_Args
+    raw_data: torch.Tensor,
+    recon_args: CAPTURE_VarW_NQM_DCE_PostInj_Args,
+    respiratory_curve=None,
+    return_kspace_data_z: bool = True,
+    return_respiratory_curve: bool = False,
 ):
-    nav = (
-        einx.rearrange(
-            "ch_num spoke_num spoke_len -> spoke_len spoke_num ch_num",
-            raw_data[:, 0, recon_args.start_spokes_to_discard :, :],
+    if respiratory_curve is not None:
+        pass
+    else:
+        nav = (
+            einx.rearrange(
+                "ch_num spoke_num spoke_len -> spoke_len spoke_num ch_num",
+                raw_data[:, 0, recon_args.start_spokes_to_discard :, :],
+            )
+            * recon_args.amplitude_scale_factor
         )
-        * recon_args.amplitude_scale_factor
-    )
-    ch, rotation, respiratory_curve = comp.tuned_and_robust_estimation(
-        navigator=nav.numpy(),
-        percentW=recon_args.percentW,
-        Fs=recon_args.Fs,
-        FOV=recon_args.FOV,
-        ndata=recon_args.spoke_len,
-        device=recon_args.device,
-    )
-    # here rotation is index of 100 different degree, to get same with cihat, please+1
+        ch, rotation, respiratory_curve = comp.tuned_and_robust_estimation(
+            navigator=nav.numpy(),
+            percentW=recon_args.percentW,
+            Fs=recon_args.Fs,
+            FOV=recon_args.FOV,
+            ndata=recon_args.spoke_len,
+            device=recon_args.device,
+        )
+    # here rotation is index of 100 different degree, to get same with Cihat, please+1
     respiratory_curve_contrast = einx.rearrange(
         "(contra spokes_per_contra) -> contra spokes_per_contra",
         respiratory_curve[recon_args.binning_start_idx : recon_args.binning_end_idx],
@@ -96,12 +104,11 @@ def preprocess_raw_data(
         spokes_per_contra=recon_args.spokes_per_contra,
     )
     # separate the respiratory curve into different time periods (contrasts)
-
     sorted_r, sorted_r_idx = torch.sort(respiratory_curve_contrast, dim=-1)
     # in each of the contrast, we sort the respiratory curve in order to classify respiratory phases
-    respiratory_curve = respiratory_curve[
-        recon_args.binning_start_idx : recon_args.binning_end_idx
-    ]
+    # respiratory_curve = respiratory_curve[
+    #     recon_args.binning_start_idx : recon_args.binning_end_idx
+    # ]
 
     kspace_raw_data = (
         raw_data[:, 1:, recon_args.start_spokes_to_discard :, :]
@@ -118,24 +125,20 @@ def preprocess_raw_data(
         full_length=recon_args.slice_num,
         dim=1,
     )
-    # kspace_data_z = einx.vmap_with_axis(
-    #     "ch [z] sp len -> ch [z] sp len", kspace_data_centralized,
-    #     op = lambda x, axis: comp.fft_1D(x, dim=axis, norm="ortho")
-    # )
-    kspace_data_z = comp.ifft_1D(kspace_data_centralized, dim=1, norm="ortho")
+    # kspace_data_z = comp.ifft_1D(kspace_data_centralized, dim=1, norm="ortho")
 
     (
         _kspace_traj,
-        _kspace_data_z,
+        # _kspace_data_z,
         _kspace_data_centralized,
         _kspace_data_mask,
     ) = map(
         comp.data_binning,
         [
             kspace_traj[:, recon_args.binning_start_idx : recon_args.binning_end_idx],
-            kspace_data_z[
-                :, :, recon_args.binning_start_idx : recon_args.binning_end_idx
-            ],
+            # kspace_data_z[
+            #     :, :, recon_args.binning_start_idx : recon_args.binning_end_idx
+            # ],
             kspace_data_centralized[
                 :, :, recon_args.binning_start_idx : recon_args.binning_end_idx
             ],
@@ -149,19 +152,25 @@ def preprocess_raw_data(
         [recon_args.phase_num] * 4,
         [recon_args.spokes_per_phase] * 4,
     )
-
-    return {
+    return_dict = {
         "kspace_traj": _kspace_traj,
-        "kspace_data_z": _kspace_data_z,
         "kspace_data_centralized": _kspace_data_centralized,
         "kspace_data_mask": _kspace_data_mask,
-        "kspace_data_csm": kspace_data_centralized[
-            :, :, recon_args.binning_start_idx : recon_args.binning_end_idx
-        ],
-        "kspace_traj_csm": kspace_traj[
-            :, recon_args.binning_start_idx : recon_args.binning_end_idx
-        ],
+        # "kspace_data_z": _kspace_data_z,
+        # "kspace_data_csm": kspace_data_centralized[
+        #     :, :, recon_args.binning_start_idx : recon_args.binning_end_idx
+        # ],
+        # "kspace_traj_csm": kspace_traj[
+        #     :, recon_args.binning_start_idx : recon_args.binning_end_idx
+        # ],
     }
+    if return_respiratory_curve:
+        return_dict["respiratory_curve"] = respiratory_curve_contrast
+    if return_kspace_data_z:
+        return_dict["kspace_data_z"] = comp.ifft_1D(
+            _kspace_data_centralized, dim=1, norm="ortho"
+        )
+    return return_dict
 
 
 @dispatch

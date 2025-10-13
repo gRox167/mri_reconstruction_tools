@@ -15,36 +15,206 @@ import torch
 import zarr
 from einops import parse_shape
 from jaxtyping import ArrayLike
+from matplotlib.colors import Normalize
 from plum import dispatch, overload
 from torch import Tensor
 from xarray import DataArray
 
 
+def plot_mvf_with_image(
+    img,
+    mvf,
+    location,
+    stride,
+    vmin=None,
+    vmax=None,
+    cnorm=Normalize(-10, 10),
+    scale_units="xy",
+    fig=None,
+    axes=None,
+):
+    z0, y0, x0 = location  # Now unpacked as (z,y,x)
+    if fig is None:
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 6))
+        animate_flag = True
+    else:
+        ax1, ax2, ax3 = axes
+        animate_flag = False
+
+    # 1. Axial plane (x-y plane, fixed z)
+    ax1.imshow(img[z0], cmap="gray", vmin=vmin, vmax=vmax)
+    y_ax, x_ax = np.mgrid[0 : mvf.shape[3] : stride, 0 : mvf.shape[4] : stride]
+    z_ax = mvf[
+        0, 0, z0, slice(None, None, stride), slice(None, None, stride)
+    ]  # z component
+    y_ax_vec = mvf[
+        0, 1, z0, slice(None, None, stride), slice(None, None, stride)
+    ]  # y component
+    x_ax_vec = mvf[
+        0, 2, z0, slice(None, None, stride), slice(None, None, stride)
+    ]  # x component
+    q_ax = ax1.quiver(
+        x_ax,
+        y_ax,
+        -x_ax_vec,
+        -y_ax_vec,
+        z_ax,
+        cmap="coolwarm",
+        angles="xy",
+        scale_units=scale_units,
+        scale=1,
+        norm=cnorm,
+    )
+    cbar = plt.colorbar(q_ax, ax=ax1, label="Z displacement") if animate_flag else None
+    ax1.axhline(y0, color="r", linestyle="--", alpha=0.3)
+    ax1.axvline(x0, color="r", linestyle="--", alpha=0.3)
+    ax1.set_title(f"Axial plane (z={z0})\nColors: z-direction")
+
+    # 2. Sagittal plane (y-z plane, fixed x)
+    ax2.imshow(img[:, :, x0], cmap="gray", vmin=vmin, vmax=vmax)
+    z_sag, y_sag = np.mgrid[0 : mvf.shape[2] : stride, 0 : mvf.shape[3] : stride]
+    x_sag = mvf[
+        0, 2, slice(None, None, stride), slice(None, None, stride), x0
+    ]  # x component
+    y_sag_vec = mvf[
+        0, 1, slice(None, None, stride), slice(None, None, stride), x0
+    ]  # y component
+    z_sag_vec = mvf[
+        0, 0, slice(None, None, stride), slice(None, None, stride), x0
+    ]  # z component
+    q_sag = ax2.quiver(
+        y_sag,
+        z_sag,
+        -y_sag_vec,
+        -z_sag_vec,
+        x_sag,
+        cmap="coolwarm",
+        angles="xy",
+        scale_units=scale_units,
+        scale=1,
+        norm=cnorm,
+    )
+    cbar = plt.colorbar(q_sag, ax=ax2, label="X displacement") if animate_flag else None
+    ax2.axhline(z0, color="r", linestyle="--", alpha=0.5)
+    ax2.axvline(y0, color="r", linestyle="--", alpha=0.5)
+    ax2.set_title(f"Sagittal plane (x={x0})\nColors: x-direction")
+
+    # 3. Coronal plane (x-z plane, fixed y)
+    ax3.imshow(img[:, y0, :], cmap="gray", vmin=vmin, vmax=vmax)
+    z_cor, x_cor = np.mgrid[0 : mvf.shape[2] : stride, 0 : mvf.shape[4] : stride]
+    y_cor = mvf[
+        0, 1, slice(None, None, stride), y0, slice(None, None, stride)
+    ]  # y component
+    x_cor_vec = mvf[
+        0, 2, slice(None, None, stride), y0, slice(None, None, stride)
+    ]  # x component
+    z_cor_vec = mvf[
+        0, 0, slice(None, None, stride), y0, slice(None, None, stride)
+    ]  # z component
+    q_cor = ax3.quiver(
+        x_cor,
+        z_cor,
+        -x_cor_vec,
+        -z_cor_vec,
+        y_cor,
+        cmap="coolwarm",
+        angles="xy",
+        scale_units=scale_units,
+        scale=1,
+        norm=cnorm,
+    )
+    cbar = plt.colorbar(q_cor, ax=ax3, label="Y displacement") if animate_flag else None
+    ax3.axhline(z0, color="r", linestyle="--", alpha=0.5)
+    ax3.axvline(x0, color="r", linestyle="--", alpha=0.5)
+    ax3.set_title(f"Coronal plane (y={y0})\nColors: y-direction")
+
+    # plt.tight_layout()
+    plt.axis("off")
+
+    return fig, ax1, ax2, ax3
+
+
+def rotate_mvf_torch2med(_mvf):
+    mvf = _mvf.clone()
+    mvf[:, 1] = -mvf[:, 1]
+    mvf = mvf.flip(3)
+    # mvf = einx.rearrange(
+    #     "b (vz+vy+vx) d h w -> b (vz+vx+vy) d w h", mvf.flip(2), vx=1, vy=1, vz=1
+    # )
+    return mvf
+
+
+def rotate_img_torch2med(_img):
+    return _img.flip(1)
+
+
 def torch_to_nii_direction(data):
-    return einx.rearrange("d h w -> w h d", data.flip(0, 2))
+    if data.dim() == 3:
+        # Assuming data is in the format (d, h, w)
+        data = einx.rearrange("d h w -> w h d", data)
+        return data
+    elif data.dim() == 4:
+        # Assuming data is in the format (d, h, w, c)
+        data = einx.rearrange("d h w c -> w h d c", data)
+        return data
+    else:
+        raise ValueError(
+            "Input tensor must be 3D or 4D with shape (d, h, w) or (d, h, w, c)"
+        )
 
 
 @dispatch
 def nii_to_torch_direction(data: Tensor):
-    return einx.rearrange("w h d -> d h w", data).flip(0, 2)
+    if data.dim() == 3:
+        # Assuming data is in the format (d, h, w)
+        return einx.rearrange("w h d -> d h w", data)
+
+    elif data.dim() == 4:
+        # Assuming data is in the format (d, h, w, c)
+        return einx.rearrange("w h d c -> d h w c", data)
+    else:
+        raise ValueError(
+            "Input tensor must be 3D or 4D with shape (w, h, d) or (w, h, d, c)"
+        )
 
 
 @dispatch
-def nii_to_torch_direction(data: ArrayLike):
-    return np.flip(einx.rearrange("w h d -> d h w", data), (0, 2))
+def nii_to_torch_direction(data: ArrayLike, flip=True):
+    if len(data.shape) == 3:
+        # Assuming data is in the format (d, h, w)
+        return einx.rearrange("w h d -> d h w", data)
+    elif len(data.shape) == 4:
+        # Assuming data is in the format (d, h, w, c)
+        return einx.rearrange("w h d c -> d h w c", data)
+    else:
+        raise ValueError(
+            "Input tensor must be 3D or 4D with shape (w, h, d) or (w, h, d, c)"
+        )
 
 
+@dispatch
 def plot_3D(
-    image,
+    image: Tensor,
     vmin=None,
     vmax=None,
     location=(0, 0, 0),
     scale=None,
-    title=None,
     show_crosshairs=False,
+    colorbar=None,
+    title=None,
+    axes=None,
+    fig=None,
+    figsize=(30, 10),
+    tight_layout=True,
 ):
     z, y, x = location
-    fig, axes = plt.subplots(1, 3, figsize=(30, 10))
+    if fig is not None:
+        if axes is not None:
+            pass
+        else:
+            axes = fig.subplots(1, 3)
+    else:
+        fig, axes = plt.subplots(1, 3, figsize=figsize)
 
     if scale is not None:
         # use nn.functional.interpolate to scale the image
@@ -58,10 +228,10 @@ def plot_3D(
 
     axes[0].imshow(image[z, :, :], cmap="gray", vmin=vmin, vmax=vmax)
     axes[0].title.set_text("Axial")
-    axes[1].imshow(image[:, y, :], cmap="gray", vmin=vmin, vmax=vmax)
-    axes[1].title.set_text("Coronal")
-    axes[2].imshow(image[:, :, x], cmap="gray", vmin=vmin, vmax=vmax)
-    axes[2].title.set_text("Sagittal")
+    axes[1].imshow(image[:, :, x], cmap="gray", vmin=vmin, vmax=vmax)
+    axes[1].title.set_text("Sagittal")
+    axes[2].imshow(image[:, y, :], cmap="gray", vmin=vmin, vmax=vmax)
+    axes[2].title.set_text("Coronal")
 
     # Add crosshairs if requested
     if show_crosshairs:
@@ -69,19 +239,50 @@ def plot_3D(
         axes[0].axhline(y=y, color="r", linestyle="--", alpha=0.7)
         axes[0].axvline(x=x, color="r", linestyle="--", alpha=0.7)
 
-        # Coronal view (shows z-x plane)
-        axes[1].axhline(y=z, color="r", linestyle="--", alpha=0.7)
-        axes[1].axvline(x=x, color="r", linestyle="--", alpha=0.7)
-
         # Sagittal view (shows z-y plane)
+        axes[1].axhline(y=z, color="r", linestyle="--", alpha=0.7)
+        axes[1].axvline(x=y, color="r", linestyle="--", alpha=0.7)
+        # Coronal view (shows z-x plane)
         axes[2].axhline(y=z, color="r", linestyle="--", alpha=0.7)
-        axes[2].axvline(x=y, color="r", linestyle="--", alpha=0.7)
+        axes[2].axvline(x=x, color="r", linestyle="--", alpha=0.7)
+
     for ax in axes:
         ax.axis("off")
     if title is not None:
+        # set subfigure title
         fig.suptitle(title, fontsize=20)
-    plt.tight_layout()
+    if tight_layout:
+        plt.tight_layout()
     return fig, axes
+
+
+@dispatch
+def plot_3D(image: np.ndarray, *args, **kwargs):
+    return plot_3D(torch.from_numpy(image), *args, **kwargs)
+
+
+@dispatch
+def plot_3D(
+    image: nib.nifti1.Nifti1Image | nib.nifti2.Nifti2Image, channel=0, *args, **kwargs
+):
+    fdata = image.get_fdata()
+    if fdata.ndim == 4:
+        fdata = fdata[..., channel]
+    else:
+        fdata = fdata
+
+    return plot_3D(nii_to_torch_direction(fdata).copy(), *args, **kwargs)
+
+
+@dispatch
+def plot_3D(image: str, *args, **kwargs):
+    if image.endswith(".nii") or image.endswith(".nii.gz"):
+        image = nib.load(image)
+    elif image.endswith(".npy"):
+        image = np.load(image)
+    elif image.endswith(".zarr"):
+        image = zarr.open(image, mode="r")
+    return plot_3D(image, *args, **kwargs)
 
 
 def get_raw_data(
@@ -150,18 +351,6 @@ def check_mk_dirs(paths):
             return True
 
 
-@overload
-def to_nifty(
-    img: np.ndarray,
-    output_path: str | bytes | os.PathLike,
-    affine=torch.eye(4, dtype=torch.float32),
-):
-    nifty_image = nib.Nifti1Image(img, affine)
-    # check_mk_dirs(output_path)
-    nib.save(nifty_image, output_path)
-    print("Writed to: ", output_path)
-
-
 def write_nifti(data_array, reference_nifti_file_path, output_file_path):
     """
     Write a new NIFTI file using the provided data array, reference NIFTI file's affine and header.
@@ -226,6 +415,18 @@ def to_nifti(
     affine: ArrayLike,
 ):
     nifty_image = nib.Nifti1Image(img, affine)
+    nib.save(nifty_image, output_path)
+    print("Writed to: ", output_path)
+
+
+@overload
+def to_nifty(
+    img: np.ndarray,
+    output_path: str | bytes | os.PathLike,
+    affine=torch.eye(4, dtype=torch.float32),
+):
+    nifty_image = nib.Nifti1Image(img, affine)
+    # check_mk_dirs(output_path)
     nib.save(nifty_image, output_path)
     print("Writed to: ", output_path)
 
@@ -328,7 +529,7 @@ def plot(imgs, **imshow_kwargs):
 
     num_rows = len(imgs)
     num_cols = len(imgs[0])
-    _, axs = plt.subplots(nrows=num_rows, ncols=num_cols, squeeze=False)
+    _, axs = plt.subplots(nrows=num_rows, ncols=num_cols, squeeze=False, figsize=(num_cols * 5, num_rows * 5))
     for row_idx, row in enumerate(imgs):
         for col_idx, img in enumerate(row):
             ax = axs[row_idx, col_idx]
@@ -336,7 +537,8 @@ def plot(imgs, **imshow_kwargs):
             ax.imshow(np.asarray(img), **imshow_kwargs)
             ax.set(xticklabels=[], yticklabels=[], xticks=[], yticks=[])
 
-    plt.tight_layout()
+    # plt.tight_layout()
+    return _, axs
 
 
 def to_dicom(

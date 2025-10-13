@@ -30,22 +30,22 @@ from torch.utils import dlpack as dlpack_torch
 #     return coord
 
 
-def center_crop(input_tensor, oshape):
-    """
-    Crop the input tensor to the specified output shape by centering the crop.
+# def center_crop(input_tensor, oshape):
+#     """
+#     Crop the input tensor to the specified output shape by centering the crop.
 
-    Args:
-        input_tensor (torch.Tensor): The input tensor to be cropped.
-        oshape (tuple): The desired output shape of the cropped tensor.
+#     Args:
+#         input_tensor (torch.Tensor): The input tensor to be cropped.
+#         oshape (tuple): The desired output shape of the cropped tensor.
 
-    Returns:
-        torch.Tensor: The cropped tensor with the specified output shape.
-    """
-    ishape = input_tensor.shape
-    ishift = [max(i // 2 - o // 2, 0) for i, o in zip(ishape, oshape)]
-    islice = tuple([slice(si, si + c) for si, c in zip(ishift, oshape)])
-    output = input_tensor[islice]
-    return output
+#     Returns:
+#         torch.Tensor: The cropped tensor with the specified output shape.
+#     """
+#     ishape = input_tensor.shape
+#     ishift = [max(i // 2 - o // 2, 0) for i, o in zip(ishape, oshape)]
+#     islice = tuple([slice(si, si + c) for si, c in zip(ishift, oshape)])
+#     output = input_tensor[islice]
+#     return output
 
 
 def jax_to_torch(input):

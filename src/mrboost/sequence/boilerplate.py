@@ -9,7 +9,7 @@ class ReconArgs:
     shape_dict: Dict
     mdh: Any
     twixobj: Any
-    device: torch.device = torch.device("cuda")
+    device: torch.device = torch.device("cuda:0")
     partial_fourier_flag: bool = True
     readout_oversampling_removed: bool = False
     amplitude_scale_factor: float = field(init=False)

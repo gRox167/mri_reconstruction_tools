@@ -75,7 +75,6 @@ def hanning_filter(nonzero_width_percent: float, width: int) -> np.ndarray:
     pad_width_L = round((width - nonzero_width) // 2)
     pad_width_R = width - nonzero_width - pad_width_L
     hanning_weights = np.float32(np.hanning(nonzero_width))
-    print(pad_width_L, pad_width_R)
     W = np.pad(hanning_weights, pad_width=(pad_width_L, pad_width_R))
     return W
 

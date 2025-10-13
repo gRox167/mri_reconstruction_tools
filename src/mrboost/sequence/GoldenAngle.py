@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Callable, Dict, Sequence
-
+from tensordict import TensorDict
 import einx
 import numpy as np
 import torch
@@ -58,18 +58,18 @@ def preprocess_raw_data(
         #     batch_size=1, device=recon_args.device
         # )(comp.ifft_1D)(kspace_data_centralized, dim=1, norm="backward")
         kspace_data_z = comp.ifft_1D(kspace_data_centralized, dim=1, norm="ortho")
-        return dict(
-            kspace_data_centralized=kspace_data_centralized,
+        return TensorDict(
+            dict(kspace_data_centralized=kspace_data_centralized,
             kspace_data_z=kspace_data_z,
             kspace_traj=kspace_traj,
-            kspace_data_mask=kspace_data_mask,
+            kspace_data_mask=kspace_data_mask)
         )
     else:
-        return dict(
+        return TensorDict(dict(
             kspace_data_centralized=kspace_data_centralized,
             kspace_traj=kspace_traj,
             kspace_data_mask=kspace_data_mask,
-        )
+        ))
 
 
 @dispatch

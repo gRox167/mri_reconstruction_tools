@@ -56,7 +56,7 @@ def preprocess_raw_data(
             z_dim_fft=True,
         )
         data_list.append(data_dict)
-    return data_list
+    return torch.stack(data_list)
 
 
 @dispatch
