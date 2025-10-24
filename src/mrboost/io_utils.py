@@ -1,3 +1,4 @@
+import math
 import os
 import time
 from copy import deepcopy
@@ -7,6 +8,7 @@ from typing import Literal
 
 import einx
 import h5py
+import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 import nibabel as nib
 import numpy as np
@@ -16,6 +18,7 @@ import zarr
 from einops import parse_shape
 from jaxtyping import ArrayLike
 from matplotlib.colors import Normalize
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from plum import dispatch, overload
 from torch import Tensor
 from xarray import DataArray
@@ -285,6 +288,205 @@ def plot_3D(image: str, *args, **kwargs):
     return plot_3D(image, *args, **kwargs)
 
 
+def colorize_complex(
+    img,
+    cmap="twilight_shifted",
+    mag_scale="normalize",
+    show=False,
+    title=None,
+):
+    """
+    Convert a complex image to an RGB image where:
+      - magnitude = brightness
+      - phase = hue (color)
+    Optionally plots the result with a correct phase colorbar.
+
+    Parameters
+    ----------
+    img : np.ndarray
+        Complex-valued image (H, W).
+    cmap : str
+        Matplotlib colormap name (e.g. 'hsv', 'twilight_shifted').
+    mag_scale : str
+        'normalize' or 'log' for magnitude scaling.
+    show : bool
+        If True, display the image and a corresponding colorbar.
+    title : str, optional
+        Figure title if show=True.
+
+    Returns
+    -------
+    rgb_img : np.ndarray
+        RGB image, shape (H, W, 3)
+    """
+    # magnitude and phase
+    mag = np.abs(img)
+    phase = np.angle(img)
+
+    # magnitude scaling
+    if mag_scale == "normalize":
+        mag = mag / np.max(mag)
+    elif mag_scale == "log":
+        mag = np.log1p(mag)
+        mag = mag / np.max(mag)
+
+    # normalize phase [-pi, pi] → [0, 1]
+    phase_norm = (phase + np.pi) / (2 * np.pi)
+
+    # apply colormap
+    cmap_fn = cm.get_cmap(cmap)
+    color = cmap_fn(phase_norm)[..., :3]
+    rgb_img = color * mag[..., None]
+
+    # optional display with colorbar
+    if show:
+        plt.figure(figsize=(6, 6))
+        plt.imshow(rgb_img)
+        plt.axis("off")
+        if title:
+            plt.title(title)
+
+        # proper phase colorbar
+        norm = plt.Normalize(vmin=-np.pi, vmax=np.pi)
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+        sm.set_array([])
+
+        cbar = plt.colorbar(sm, fraction=0.046, pad=0.04)
+        cbar.set_label("Phase (radians)")
+        cbar.set_ticks([-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi])
+        cbar.set_ticklabels(["−π", "−π/2", "0", "π/2", "π"])
+        plt.show()
+
+    return rgb_img
+
+
+def plot_csm(
+    csm,
+    cmap="twilight",
+    mag_scale="normalize",  # 'normalize' or 'log'
+    figsize=None,
+    grid=None,  # (rows, cols); if None -> automatic square-ish
+    per_axis_colorbar=True,
+    inset=False,  # put colorbars inside each axes; if False, attach on the side of each axes
+    title_prefix="coil",
+    transform=None,  # optional callable to transform each coil image before colorizing
+):
+    """
+    Plot complex coil sensitivity maps with magnitude as brightness and phase as hue,
+    plus a per-axes phase colorbar normalized to [-pi, pi].
+
+    Parameters
+    ----------
+    csm : np.ndarray or torch.Tensor
+        Complex array with shape (C, H, W) or (H, W) for a single coil.
+    cmap : str
+        Matplotlib colormap for phase (e.g., 'twilight_shifted', 'hsv', 'twilight').
+    mag_scale : str
+        'normalize' (linear to [0,1]) or 'log' (log1p then normalize).
+    figsize : tuple
+        Figure size (W, H) in inches.
+    grid : tuple
+        (rows, cols). If None, computed automatically.
+    per_axis_colorbar : bool
+        Whether to draw a colorbar for each subplot.
+    inset : bool
+        If True, draw a compact inset colorbar inside each axes.
+    title_prefix : str
+        Per-axes title prefix (e.g., 'coil').
+    transform : callable
+        Optional function: img -> img (applied per-coil before colorization).
+        Useful for flips/permutations (e.g., lambda x: np.flipud(x.T)).
+
+    Returns
+    -------
+    fig, axes
+    """
+
+    # --- small helpers ---
+    def _to_numpy(x):
+        # Convert torch -> numpy if needed
+        try:
+            import torch
+
+            if isinstance(x, torch.Tensor):
+                # Keep complex dtype; detach CPU; no copy unless needed
+                x = x.detach().cpu().numpy()
+        except Exception:
+            pass
+        return np.asarray(x)
+
+    # --- prepare data ---
+    arr = _to_numpy(csm)
+    if arr.ndim == 2:  # single coil
+        arr = arr[None, ...]  # -> (1, H, W)
+    if arr.ndim != 3 or not np.iscomplexobj(arr):
+        raise ValueError("csm must be complex with shape (C, H, W) or (H, W).")
+
+    C, H, W = arr.shape
+
+    # layout
+    if grid is None:
+        rows = int(math.floor(math.sqrt(C)))
+        cols = int(math.ceil(C / rows))
+    else:
+        rows, cols = grid
+        if rows * cols < C:
+            raise ValueError("grid too small for number of coils")
+
+    if figsize is None:
+        figsize = (3.0 * cols, 3.2 * rows)
+
+    fig, axes = plt.subplots(rows, cols, figsize=figsize, squeeze=False)
+
+    # phase normalization (shared across colorbars)
+    norm = plt.Normalize(vmin=-np.pi, vmax=np.pi)
+
+    # --- plot each coil ---
+    for i in range(C):
+        r, cl = divmod(i, cols)
+        ax = axes[r, cl]
+
+        img = arr[i]
+        if transform is not None:
+            img = transform(img)
+
+        rgb = colorize_complex(img, cmap=cmap, mag_scale=mag_scale)
+        ax.imshow(rgb)
+        ax.set_title(f"{title_prefix}: {i}")
+        ax.axis("off")
+
+        if per_axis_colorbar:
+            sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+            sm.set_array([])
+
+            if inset:
+                # compact inset bar inside axes
+                cax = inset_axes(
+                    ax,
+                    width="3%",
+                    height="55%",
+                    loc="lower left",
+                    bbox_to_anchor=(1.02, 0.22, 1, 1),
+                    bbox_transform=ax.transAxes,
+                    borderpad=0,
+                )
+                cbar = plt.colorbar(sm, cax=cax)
+            else:
+                cbar = plt.colorbar(sm, ax=ax, fraction=0.046, pad=0.04)
+
+            cbar.set_label("Phase (radians)")
+            cbar.set_ticks([-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi])
+            cbar.set_ticklabels(["−π", "−π/2", "0", "π/2", "π"])
+
+    # hide any extra axes
+    for j in range(C, rows * cols):
+        r, cl = divmod(j, cols)
+        axes[r, cl].set_visible(False)
+
+    plt.tight_layout()
+    return fig, axes
+
+
 def get_raw_data(
     dat_file_location: Path,
     multi_echo=False,
@@ -529,11 +731,17 @@ def plot(imgs, **imshow_kwargs):
 
     num_rows = len(imgs)
     num_cols = len(imgs[0])
-    _, axs = plt.subplots(nrows=num_rows, ncols=num_cols, squeeze=False, figsize=(num_cols * 5, num_rows * 5))
+    _, axs = plt.subplots(
+        nrows=num_rows,
+        ncols=num_cols,
+        squeeze=False,
+        figsize=(num_cols * 5, num_rows * 5),
+    )
     for row_idx, row in enumerate(imgs):
         for col_idx, img in enumerate(row):
             ax = axs[row_idx, col_idx]
-            img = img.to("cpu")
+            if isinstance(img, torch.Tensor):
+                img = img.cpu().numpy()
             ax.imshow(np.asarray(img), **imshow_kwargs)
             ax.set(xticklabels=[], yticklabels=[], xticks=[], yticks=[])
 

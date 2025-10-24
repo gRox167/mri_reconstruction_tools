@@ -1,9 +1,13 @@
-import einx
+from typing import Sequence
 
-# from keras import ops
-import torch as ops
+import einx
+import numpy as np
+
+# from keras import torch
+import torch
 
 # import sigpy as sp
+# from dlboost.utils.tensor_utils import interpolate
 from . import computation as comp
 from .density_compensation import (
     area_based_radial_density_compensation,
@@ -41,11 +45,11 @@ def get_csm_lowk_xy(
         im_size,
     )
     if normalize:
-        img_sens_SOS = ops.sqrt(einx.sum("[ch] z h w", abs(coil_sens) ** 2))
+        img_sens_SOS = torch.sqrt(einx.sum("[ch] z h w", abs(coil_sens) ** 2))
         csm = coil_sens / img_sens_SOS
     else:
         csm = coil_sens
-    # coil_sens[ops.isnan(coil_sens)] = 0  # optional
+    # coil_sens[torch.isnan(coil_sens)] = 0  # optional
     # coil_sens /= coil_sens.abs().max()
     return csm
 
@@ -78,150 +82,212 @@ def get_csm_lowk_xyz(
         im_size,
     )
 
-    img_sens_SOS = ops.sqrt(einx.sum("[ch] z h w", ops.abs(coil_sens) ** 2))
+    img_sens_SOS = torch.sqrt(einx.sum("[ch] z h w", torch.abs(coil_sens) ** 2))
     coil_sens = coil_sens / img_sens_SOS
-    # coil_sens[ops.isnan(coil_sens)] = 0  # optional
+    # coil_sens[torch.isnan(coil_sens)] = 0  # optional
     # coil_sens /= coil_sens.abs().max()
 
     return coil_sens
 
 
-def get_csm_espirit():
-    """Pytorch ESPIRIT implementation. Adapted for convenience from https://github.com/mikgroup/espirit-python/tree/master"""
-    # TODO: implement this function with proper inputs and outputs as lowk method, you can refer to get_csm_lowk_xy
-    # and for espirit implementation refer to espirit_cal function below
-    pass
-
-
-def espirit_cal(
-    data, coord=None, dcf=None, shape=None, k=6, r=24, t=0.02, c=0.0, nsets=1
+def get_csm_espirit(
+    kspace_data,
+    kspace_traj,
+    image_size,
+    kernel_size=(6, 6, 6),
+    acs_size=(20, 20, 20),
+    rank_threshold=0.02,
+    crop_threshold=0.95,
+    nsets=1,
+    align_phase=False,
+    kz_ifft_dim=1,
+    normalize=True,
+    esprit_device=torch.device("cuda")
+    if torch.cuda.is_available()
+    else torch.device("cpu"),
+    RO_oversampling_factor=2.0,
 ):
-    """
-    Derives the ESPIRiT [1] operator.
+    """Estimate coil sensitivities with an ESPIRiT calibration pipeline. This only works for 3D radial sampling data."""
+    if kspace_data.ndim != 4:
+        raise ValueError(
+            "Expected kspace_data with shape (ncoils, nz, nviews, nsamples)."
+        )
+    if kspace_traj is None:
+        raise ValueError(
+            "kspace_traj is required for ESPIRiT-based sensitivity estimation."
+        )
 
-    Parameters
-    ----------
-    data : np.ndarray | torch.Tensor
-        Multi channel k-space data.
-    coord : np.ndarray | torch.Tensor, optional
-        K-space trajectory of ``shape = (ncontrasts, nviews, nsamples, ndim)``.
-        The default is ``None`` (Cartesian acquisition).
-    dcf : np.ndarray | torch.Tensor, optional
-        K-space density compensation of ``shape = (ncontrasts, nviews, nsamples)``.
-        The default is ``None`` (no compensation).
-    shape : Iterable[int] | optional
-        Shape of the k-space after gridding. If not provided, estimate from
-        input data (assumed on a Cartesian grid already).
-        The default is ``None`` (Cartesian acquisition).
-    k : int, optional
-        k-space kernel size. The default is ``6``.
-    r : int, optional
-        Calibration region size. The default is ``24``.
-    t : float, optional
-        Rank of the auto-calibration matrix (A).
-        The default is ``0.02``.
-    c : float, optional
-        Crop threshold that determines eigenvalues "=1".
-        The defaults is ``0.95``.
-    nsets : int, optional
-        Number of set of maps to be returned.
-        The default is ``1`` (conventional SENSE recon).
-
-    Returns
-    -------
-    maps : np.ndarray | torch.Tensor
-        Output coil sensitivity maps.
-
-    Notes
-    -----
-    The input k-space ``data`` tensor is assumed to have the following shape:
-
-    * **2Dcart:** ``(nslices, ncoils, ..., ny, nx)``.
-    * **2Dnoncart:** ``(nslices, ncoils, ..., nviews, nsamples)``.
-    * **3Dcart:** ``(nx, ncoils, ..., nz, ny)``.
-    * **3Dnoncart:** ``(ncoils, ..., nviews, nsamples)``.
-
-    For multi-contrast acquisitions, calibration is obtained by averaging over
-    contrast dimensions.
-
-    The output sensitivity maps are assumed to have the following shape:
-
-    * **2Dcart:** ``(nsets, nslices, ncoils, ny, nx)``.
-    * **2Dnoncart:** ``(nsets, nslices, ncoils, ny, nx)``.
-    * **3Dcart:** ``(nsets, nx, ncoils, nz, ny)``.
-    * **3Dnoncart:** ``(nsets, ncoils, nz, ny, nx)``.
-
-    References
-    ----------
-    .. [1] Uecker M, Lai P, Murphy MJ, Virtue P, Elad M, Pauly JM, Vasanawala SS, Lustig M.
-           ESPIRiT--an eigenvalue approach to autocalibrating parallel MRI: where SENSE meets GRAPPA.
-           Magn Reson Med. 2014 Mar;71(3):990-1001. doi: 10.1002/mrm.24751. PMID: 23649942; PMCID: PMC4142121.
-
-    """
-    if isinstance(data, np.ndarray):
-        isnumpy = True
-    else:
-        isnumpy = False
-
-    while len(data.shape) < 5:
-        data = data[None, ...]
-
-    # keep shape
-    if coord is not None:
-        ndim = coord.shape[-1]
-        if np.isscalar(shape):
-            shape = ndim * [shape]
-        else:
-            shape = list(shape)[-ndim:]
-        shape = [int(s) for s in shape]
-    else:
-        ndim = 2
-        shape = list(data.shape[-2:])
-
+    density_comp = area_based_radial_density_compensation(kspace_traj)
+    kspace_data = einx.multiply(
+        "ch kz sp len, sp len -> ch kz sp len", kspace_data, density_comp
+    )
+    nsamples = kspace_data.shape[-1]
     # extract calibration region
-    if np.max(shape) >= 1024:
-        cshape = list(np.asarray(shape, dtype=int) // 16)
-    elif np.max(shape) >= 512:
-        cshape = list(np.asarray(shape, dtype=int) // 8)
-    elif np.max(shape) >= 256:
-        cshape = list(np.asarray(shape, dtype=int) // 4)
-    elif np.max(shape) >= 128:
-        cshape = list(np.asarray(shape, dtype=int) // 2)
+    if np.max(nsamples) >= 1024:
+        cshape = list(np.asarray(image_size, dtype=int) // 16)
+        scale = 1 / 16
+    elif np.max(nsamples) >= 512:
+        cshape = list(np.asarray(image_size, dtype=int) // 8)
+        scale = 1 / 8
+    elif np.max(nsamples) >= 256:
+        cshape = list(np.asarray(image_size, dtype=int) // 4)
+        scale = 1 / 4
+    elif np.max(nsamples) >= 128:
+        cshape = list(np.asarray(image_size, dtype=int) // 2)
+        scale = 1 / 2
     else:
-        cshape = [64] * ndim
+        cshape = [64] * 3
+        scale = 1
 
-    cal_data = _acs.find_acs(data, cshape, coord, dcf)
+    calib_data = _find_non_cartisian_acs(kspace_data, kspace_traj, cshape, scale=scale)
+    print("calib_data.shape", calib_data.shape)
+    original_device = calib_data.device
+    maps_sets = _espirit_3d(
+        calib_data.to(esprit_device),
+        kernel_size=kernel_size,
+        acs_size=acs_size,
+        rank_threshold=rank_threshold,
+        crop_threshold=crop_threshold,
+        nsets=nsets,
+        # image_size=image_size,
+    ).to(original_device)
+    # maps_sets = _espirit(
+    #     calib_data, kernel_size[0], acs_size[0], rank_threshold, crop_threshold
+    # )
+    print("maps_sets.shape", maps_sets.shape)
 
-    # calculate maps
-    maps = _espirit(cal_data.clone(), k, r, t, c)
+    primary_maps = maps_sets[0]
 
-    # select maps
-    if nsets == 1:
-        maps = maps[[0]]
-    else:
-        maps = maps[:nsets]
+    from dlboost.utils.tensor_utils import interpolate
 
-    # resample
-    maps = _signal.resample(maps, shape)  # (nsets, ncoils, nz, ny, nx)
+    # primary_maps = interpolate(primary_maps, size=image_size)
+    for _ in range(3):
+        primary_maps = interpolate(
+            primary_maps,
+            scale_factor=2,
+            mode="trilinear",
+        )
+    # primary_maps = resample(
+    #     primary_maps, (primary_maps.shape[0],) + image_size, filt=True
+    # )  # (ncoils, nz, ny, nx)
 
-    # normalize
-    maps_rss = _signal.rss(maps, axis=1, keepdim=True)
-    maps = maps / maps_rss[[0]]
+    if align_phase:
+        #     phase_ref = einx.dot(
+        #         "c z y x, c z y x -> z y x", coil_imgs, primary_maps.conj()
+        #     )
+        #     eps_phase = torch.finfo(primary_maps.real.dtype).eps
+        #     phase = phase_ref / (torch.abs(phase_ref) + eps_phase)
+        #     primary_maps = einx.multiply("c z y x, z y x -> c z y x", primary_maps, phase)
+        # Phase relative to first map and crop
+        primary_maps *= torch.conj(
+            primary_maps[0] / (torch.abs(primary_maps[0]))  # + 1e-12)
+        )
 
-    # reformat
-    if ndim == 2:  # Cartesian or 2D Non-Cartesian
-        maps = maps.swapaxes(
-            1, 2
-        )  # (nsets, nslices, ncoils, ny, nx) / (nsets, nx, ncoils, nz, ny)
+    if normalize:
+        sos = torch.sqrt(einx.sum("[ch] z y x", torch.abs(primary_maps) ** 2))
+        eps_norm = torch.finfo(primary_maps.real.dtype).eps
+        primary_maps = primary_maps / (sos + eps_norm)
 
-    # cast back to numpy if required
-    if isnumpy:
-        maps = maps.numpy(force=True)
-
-    return maps, _signal.resize(cal_data, ndim * [r])
+    return primary_maps
 
 
-# %% local utils
+def _bounds(size, width):
+    width = min(width, size)
+    start = max((size - width) // 2, 0)
+    return slice(start, start + width)
+
+
+def _espirit_3d(
+    kspace_data,
+    kernel_size=(6, 6, 6),
+    acs_size=(20, 20, 20),
+    rank_threshold=0.02,
+    crop_threshold=0.95,
+    nsets=1,
+    image_size=None,
+    # device=torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu"),
+):
+    ncoils, depth, height, width = kspace_data.shape
+    kd, kh, kw = kernel_size[0], kernel_size[1], kernel_size[2]
+    # Extract calibration region.
+    ACS = kspace_data[
+        :,
+        _bounds(depth, acs_size[0]),
+        _bounds(height, acs_size[1]),
+        _bounds(width, acs_size[2]),
+    ]
+
+    # Construct Hankel matrix. Use unfold to extract sliding windows
+    # Unfold operates on one dimension at a time, so apply sequentially
+    patches = (
+        ACS.unfold(1, kd, 1).unfold(2, kh, 1).unfold(3, kw, 1)
+    )  # (ncoils, rd, rh, rw, kd, kh, kw)
+    A = einx.rearrange("c rd rh rw kd kh kw -> (rd rh rw) (c kd kh kw)", patches)
+
+    _, S, Vh = torch.linalg.svd(A, full_matrices=False)
+    r = torch.sum(S >= rank_threshold * S[0]).item()
+    kernels = (
+        torch.zeros(r, ncoils, depth, height, width, dtype=Vh.dtype, device=Vh.device)
+        if image_size is None
+        else torch.zeros(
+            r,
+            ncoils,
+            image_size[0],
+            image_size[1],
+            image_size[2],
+            dtype=Vh.dtype,
+            device=Vh.device,
+        )
+    )
+    kernels[:, :, _bounds(kd, kd), _bounds(kh, kh), _bounds(kw, kw)] = (
+        Vh[:r].view(r, ncoils, kd, kh, kw).conj()
+    )
+
+    # scale = (depth * height * width) ** 0.5
+    scale = (
+        np.prod(image_size) ** 0.5
+        if image_size is not None
+        else (depth * height * width) ** 0.5
+    )
+    kernel_volume = (kd * kh * kw) ** 0.5
+    kerimgs = comp.fft_nD(kernels).conj() * scale / kernel_volume  # why conj here?
+
+    K = einx.rearrange("r c d h w -> (d h w) c r", kerimgs)
+    # batch processed eigen-decomposition
+    U = torch.zeros(
+        nsets,
+        ncoils,
+        (depth * height * width) if image_size is None else np.prod(image_size),
+        dtype=K.dtype,
+        device=K.device,
+    )
+    for i, K_batched in enumerate(torch.split(K, 1024, dim=0)):
+        # print("K_batched.shape", K_batched.shape)
+        G_batched = torch.bmm(K_batched, K_batched.adjoint())
+        # print("G_batched.shape", G_batched.shape)
+        # perform eigen-decomposition
+        w_batched, V_batched = torch.linalg.eig(G_batched)
+        w_batched = w_batched.real
+        sort_indices_batched = torch.argsort(w_batched, descending=True)
+        mask = w_batched >= crop_threshold
+        selected_indices_batched = sort_indices_batched[:, :nsets]
+        U_batched = einx.get_at(
+            "b c1 [c2], b i -> i c1 b",
+            V_batched * mask[:, None, :],
+            selected_indices_batched,
+        )
+        U[
+            :,
+            :,
+            i * 1024 : (i + 1) * 1024 if (i + 1) * 1024 <= K.shape[0] else K.shape[0],
+        ] = U_batched
+    return (
+        U.view(nsets, ncoils, depth, height, width)
+        if image_size is None
+        else U.view(nsets, ncoils, *image_size)
+    )
+
+
 def _espirit(X, k, r, t, c):
     # transpose
     X = X.permute(3, 2, 1, 0)
@@ -282,7 +348,7 @@ def _espirit(X, k, r, t, c):
     # Take the iucfft
     axes = (0, 1, 2)
     kerimgs = (
-        _fft.fft(kernels.flip(0).flip(1).flip(2).conj(), axes)
+        comp.fft_nD(kernels.flip(0).flip(1).flip(2).conj(), axes)
         * (sx * sy * sz) ** 0.5
         / (k**p) ** 0.5
     )
@@ -291,6 +357,7 @@ def _espirit(X, k, r, t, c):
     u, s, vh = torch.linalg.svd(
         kerimgs.view(sx, sy, sz, nc, n).reshape(-1, nc, n), full_matrices=True
     )
+    print("s:", (s[:, :1] ** 2).min(), (s[:, :1] ** 2).max(), (s[:, :1] ** 2).mean())
     mask = s**2 > c
 
     # mask u (nvoxels, neigen, neigen)
@@ -299,154 +366,320 @@ def _espirit(X, k, r, t, c):
     # Reshape back to the original shape and assign to maps
     maps = u.view(sx, sy, sz, nc, nc)
 
-    # transpose
+    # transposex
     maps = maps.permute(4, 3, 2, 1, 0)
 
     return maps
 
 
-def find_acs(data, shape=None, coord=None, dcf=None):
+def _find_non_cartisian_acs(
+    kspace_data: torch.Tensor,
+    ktraj: torch.Tensor,
+    cal_shape: Sequence[int],
+    scale=1 / 8,
+):
+    """Find approximate ACS region in non-Cartesian k-space data."""
+    ch, kz, sp, sl = kspace_data.shape
+    acs_data = kspace_data[
+        :, _bounds(kz, cal_shape[0]), :, _bounds(sl, round(sl * scale))
+    ]
+    print("acs_data.shape", acs_data.shape)
+    acs_data = einx.rearrange(
+        "ch kz sp len -> ch kz (sp len)",
+        acs_data,  # [..., RO_selection]
+    )
+    acs_traj = ktraj[:, :, _bounds(sl, round(sl * scale))].reshape(2, -1)
+    # print(scale)
+    # RO_selection = slice(
+    #     sl // 2 - round(sl // 2 * scale), sl // 2 + round(sl // 2 * scale)
+    # )
+    # print("RO_selection", RO_selection)
+    # dist_threshold = max(cal_shape[1], cal_shape[2]) / sl * torch.pi
+    # r = torch.norm(ktraj, dim=0)
+    # mask = r <= dist_threshold
+    # num_acs_points = int(torch.sum(mask).item())
+    # if num_acs_points < 10:
+    #     raise ValueError(
+    #         f"ACS region too small ({num_acs_points} points). Try increasing calib_shape."
+    #     )
+    # acs_data = torch.masked_select(acs_data, mask=mask)
+    # apodize in RO direction and kz direction
+    # acs_data = acs_data[:, :, :, RO_selection]
+    # Wxy = comp.hanning_filter(nonzero_width_percent=1, width=acs_data.shape[-1])
+    # Wz = comp.hanning_filter(nonzero_width_percent=1, width=acs_data.shape[1])
+    # print("applied hanning window for ACS data")
+    # acs_data = einx.multiply(
+    #     "ch kz sp len, len, kz -> ch kz (sp len)",
+    #     acs_data,
+    #     Wxy,
+    #     Wz,
+    # )  # .view(ch, cal_shape[0], num_acs_points)
+    # acs_traj = torch.masked_select(ktraj, mask=mask).view(2, num_acs_points)
+    # acs_traj = ktraj[:, :, RO_selection].reshape(2, -1)
+
+    cal_image = comp.nufft_adj_2d(
+        acs_data,
+        acs_traj / scale,
+        (int(cal_shape[1]), int(cal_shape[2])),
+    )
+    cal_kspace_data = comp.fft_2D(cal_image, norm="ortho")
+    return cal_kspace_data
+
+
+def _expand_shapes(*shapes):
+    shapes = [list(shape) for shape in shapes]
+    max_ndim = max(len(shape) for shape in shapes)
+
+    shapes_exp = [np.asarray([1] * (max_ndim - len(shape)) + shape) for shape in shapes]
+    shapes_exp = np.stack(shapes_exp, axis=0)  # (nshapes, max_ndim)
+    shapes_exp = np.max(shapes_exp, axis=0)
+
+    # restore original shape in non-padded portions
+    shapes_exp = [list(shapes_exp[: -len(shape)]) + shape for shape in shapes]
+
+    return tuple(shapes_exp)
+
+
+def resize(input, oshape):
     """
-    Extract k-space calibration region.
+    Resize with zero-padding or cropping.
+
+    Adapted from SigPy [1].
 
     Parameters
     ----------
-    data : np.ndarray | torch.Tensor
-        Input k-space data.
-    shape : int, optional
-        Size of gridded k-space for Non-Cartesian imaging.
-        The default is ``None``.
-    coord : np.ndarray | torch.Tensor, optional
-        K-space trajectory of ``shape = (ncontrasts, nviews, nsamples, ndim)``.
-        The default is ``None`` (Cartesian acquisition).
-    dcf : np.ndarray | torch.Tensor, optional
-        K-space density compensation of ``shape = (ncontrasts, nviews, nsamples)``.
-        The default is ``None`` (no compensation).
+    input : np.ndarray | torch.Tensor
+        Input tensor of shape ``(..., ishape)``.
+    oshape : Iterable
+        Output shape.
 
     Returns
     -------
-    calib : np.ndarray | torch.Tensor
-        Output calibration k-space data of shape ``(ncoils, nz, ny, nx).
+    output : np.ndarray | torch.Tensor
+        Zero-padded or cropped tensor of shape ``(..., oshape)``.
 
-    Notes
-    -----
-    The input k-space ``data`` tensor is assumed to have the following shape:
+    Examples
+    --------
+    >>> import torch
+    >>> import deepmr
 
-    * **2Dcart:** ``(nslices, ncoils, ncontrasts, ny, nx)``.
-    * **2Dnoncart:** ``(nslices, ncoils, ncontrasts, nviews, nsamples)``.
-    * **3Dcart:** ``(nx, ncoils, ncontrasts, nz, ny)``.
-    * **3Dnoncart:** ``(ncoils, ncontrasts, nviews, nsamples)``.
+    We can pad tensors to desired shape:
 
-    For multi-contrast acquisitions, calibration is obtained by averaging over
-    contrast dimensions.
+    >>> x = torch.tensor([0, 1, 0])
+    >>> y = deepmr.resize(x, [5])
+    >>> y
+    tensor([0, 0, 1, 0, 0])
+
+    Batch dimensions are automatically expanded (pad will be applied starting from rightmost dimension):
+
+    >>> x = torch.tensor([0, 1, 0])[None, ...]
+    >>> x.shape
+    torch.Size([1, 3])
+    >>> y = deepmr.resize(x, [5]) # len(oshape) == 1
+    >>> y.shape
+    torch.Size([1, 5])
+
+    Similarly, if oshape is smaller than ishape, the tensor will be cropped:
+
+    >>> x = torch.tensor([0, 0, 1, 0, 0])
+    >>> y = deepmr.resize(x, [3])
+    >>> y
+    tensor([0, 1, 0])
+
+    Again, batch dimensions are automatically expanded:
+
+    >>> x = torch.tensor([0, 0, 1, 0, 0])[None, ...]
+    >>> x.shape
+    torch.Size([1, 5])
+    >>> y = deepmr.resize(x, [3]) # len(oshape) == 1
+    >>> y.shape
+    torch.Size([1, 3])
+
+    References
+    ----------
+    [1] https://github.com/mikgroup/sigpy/blob/main/sigpy/util.py
 
     """
-    if coord is None:
-        return _find_cart_acs(data)
+
+    if isinstance(oshape, int):
+        oshape = [oshape]
+
+    ishape1, oshape1 = _expand_shapes(input.shape, oshape)
+
+    if ishape1 == oshape1:
+        return input
+
+    # shift not supported for now
+    ishift = [max(i // 2 - o // 2, 0) for i, o in zip(ishape1, oshape1)]
+    oshift = [max(o // 2 - i // 2, 0) for i, o in zip(ishape1, oshape1)]
+
+    copy_shape = [
+        min(i - si, o - so) for i, si, o, so in zip(ishape1, ishift, oshape1, oshift)
+    ]
+    islice = tuple([slice(si, si + c) for si, c in zip(ishift, copy_shape)])
+    oslice = tuple([slice(so, so + c) for so, c in zip(oshift, copy_shape)])
+
+    output = torch.zeros(oshape1, dtype=input.dtype, device=input.device)
+    print("input.shape", input.shape)
+    print("ishape1", ishape1)
+    print("oshape1", oshape1)
+    print("islice", islice)
+    print("oslice", oslice)
+    input = input.reshape(ishape1)
+    output[oslice] = input[islice]
+
+    return output
+
+
+def resample(input, oshape, filt=True, polysmooth=False):
+    """
+    Resample a n-dimensional signal.
+
+    Parameters
+    ----------
+    input : np.ndarray | torch.Tensor
+        Input tensor of shape ``(..., ishape)``.
+    oshape : Iterable
+        Output shape.
+    filt : bool, optional
+        If True and signal is upsampled (i.e., ``any(oshape > ishape)``),
+        apply Fermi filter to limit ringing.
+        The default is True.
+    polysmooth : bool, optional
+        If true, perform polynomial smoothing.
+        The default is False. !!! NOT IMPLEMENTED YET !!!
+
+    Returns
+    -------
+    output : np.ndarray | torch.Tensor
+        Resampled tensor of shape ``(..., oshape)``.
+
+    """
+    if isinstance(oshape, int):
+        oshape = [oshape]
+
+    # first, get number of dimensions
+    ndim = len(oshape)
+    axes = list(range(-ndim, 0))
+    isreal = torch.isreal(input).all()
+
+    # take fourier transform along last ndim axes
+    freq = comp.fft_nD(input, dim=axes)
+
+    # get initial and final shapes
+    ishape1, oshape1 = _expand_shapes(input.shape, oshape)
+
+    # build filter
+    if filt and np.any(np.asarray(oshape1) > np.asarray(ishape1)):
+        size = np.max(oshape1)
+        width = np.min(oshape1)
+        filt = fermi(ndim, size, width)
+        filt = resize(filt, oshape1)  # crop to match dimension
     else:
-        return _find_noncart_acs(data, shape, coord, dcf)
+        filt = None
+
+    # resize in frequency space
+    freq = resize(freq, oshape1)
+    # if required, apply filtering
+    if filt is not None:
+        freq *= filt.to(freq.device)
+
+    # transform back
+    output = comp.ifft_nD(freq, axes)
+
+    # take magnitude if original signal was real
+    if isreal:
+        output = abs(output)
+
+    return output
 
 
-# %% local utils
-def _find_cart_acs(kspace):
-    """Adapted from https://github.com/mckib2/pygrappa/blob/main/pygrappa/find_acs.py"""
+def fermi(ndim, size, width=None):
+    """
+    Build a n-dimensional Fermi filter.
 
-    # hardcoded
-    coil_axis = 1
+    This routine can handle isotropic ND matrices. User
+    can specify the size of window support and the FWHM.
+    The filter can be used in the context of image processing
+    to mitigate ringing artifact [1].
 
-    # sum over contrasts
-    kspace = kspace.sum(axis=-3)  # (nslices, ncoils, ny, nx)
+    Parameters
+    ----------
+    ndim : int
+        Number of dimensions (e.g., ``1=1D``, ``2=2D``, ``3=3D``).
+    size : int
+        Support of the window. Filter size will be ``ndim * [size]``.
+    width : int, optional
+        Full width half maximum of the filter.
+        If ``None``, it is automatically set to ``size``. The default is ``None``.
 
-    # convert to numpy
-    if isinstance(kspace, torch.Tensor):
-        istorch = True
-        device = kspace.device
-        kspace = kspace.numpy(force=True)
-    else:
-        istorch = False
+    Returns
+    -------
+    filt : torch.Tensor
+        Fermi window of shape ``ndim * [size]`` and ``FWHM = width``.
 
-    # cast to single precision
-    kspace = kspace.astype(np.complex64)
+    Example
+    -------
+    >>> import deepmr
 
-    # move coil axis to the last dim
-    kspace = np.moveaxis(kspace, coil_axis, -1)
-    mask = np.abs(kspace[..., 0]) > 0
+    We can design e.g., 1D, 2D or 3D filters as:
 
-    # Start by finding the largest hypercube
-    ctrs = [d // 2 for d in mask.shape]  # assume ACS is at center
-    slices = [[c, c + 1] for c in ctrs]  # start with 1 voxel region
-    while all(
-        l > 0 and r < mask.shape[ii] for ii, (l, r) in enumerate(slices)
-    ) and np.all(mask[tuple([slice(l - 1, r + 1) for l, r in slices])]):
-        # expand isotropically until we can't no more
-        slices = [[l0 - 1, r0 + 1] for l0, r0 in slices]
+    >>> filt1d = deepmr.fermi(1, 128)
+    >>> filt1d.shape
+    torch.Size([128])
+    >>> filt2d = deepmr.fermi(2, 128)
+    torch.Size([128, 128])
+    >>> filt3d = deepmr.fermi(3, 128)
+    torch.Size([128, 128])
 
-    # Stretch left/right in each dimension
-    for dim in range(mask.ndim):
-        # left: only check left condition on the current dimension
-        while slices[dim][0] > 0 and np.all(
-            mask[tuple([slice(l - (dim == k), r) for k, (l, r) in enumerate(slices)])]
-        ):
-            slices[dim][0] -= 1
-        # right: only check right condition on the current dimension
-        while slices[dim][1] < mask.shape[dim] and np.all(
-            mask[tuple([slice(l, r + (dim == k)) for k, (l, r) in enumerate(slices)])]
-        ):
-            slices[dim][1] += 1
+    Bu default, FWHM is equal to the support size:
 
-    # move back coil axis to original dim
-    kspace = np.moveaxis(
-        kspace[tuple([slice(l0, r0) for l0, r0 in slices] + [slice(None)])].copy(),
-        -1,
-        coil_axis,
-    )
+    >>> (filt1d >= 0.5).sum()
+    tensor(128)
 
-    # cast back to torch if required
-    if istorch:
-        kspace = torch.as_tensor(kspace, device=device, dtype=torch.complex64)
+    User can specify a smaller FWHM via ``width`` parameter:
 
-    kspace = kspace.swapaxes(0, 1)  # (ncoils, nz, ny, nx)
-    kspace = _fft.fft(kspace, axes=(1,))
+    >>> filt1d = deepmr.fermi(1, 128, width=32)
+    >>> filt1d.shape
+    torch.Size([128])
+    >>> (filt1d >= 0.5).sum()
+    tensor(47)
 
-    return kspace
+    The discrepancy between nominal and actual FWHM is due to signal
+    discretization.
 
+    References
+    ----------
+    [1] Bernstein, M.A., Fain, S.B. and Riederer, S.J. (2001),
+    Effect of windowing and zero-filled reconstruction of MRI data
+    on spatial resolution and acquisition strategy.
+    J. Magn. Reson. Imaging, 14: 270-280.
+    https://doi.org/10.1002/jmri.1183
 
-def _find_noncart_acs(kspace, cal_shape, coord, dcf):
-    # get ndim
-    ndim = coord.shape[-1]
+    """
+    # default width
+    if width is None:
+        width = size
 
-    # collapse contrast dimension to view
-    kspace = kspace.reshape(
-        *kspace.shape[:2], 1, -1, kspace.shape[-1]
-    )  # (nslices, ncoils, 1, ncontrasts * nviews, nsamples)
-    coord = coord.reshape(
-        1, -1, *coord.shape[-2:]
-    )  # (1, ncontrasts * nviews, nsamples, ndim)
-    if dcf is not None:
-        dcf = dcf.reshape(1, -1, dcf.shape[-1])
+    # get radius
+    radius = int(width // 2)
 
-    # find subset of coord along nsamples dim
-    cabs = (coord**2).sum(axis=-1) ** 0.5  # sqrt(kx**2 + ky**2 + kz**2)
-    ind = (
-        cabs[0, 0] <= min(cal_shape) // 2
-    )  # from (-mtx /2, mtx / 2) to (-cal / 2, cal / 2)
+    # build grid, normalized so that u = 1 corresponds to window FWHM
+    R = [
+        torch.arange(int(-size // 2), int(size // 2), dtype=torch.float32)
+        for n in range(ndim)
+    ]
 
-    # select kspace and coordinates
-    cal_ksp = kspace[..., ind]
-    cal_coord = coord[..., ind, :]
+    # get transition width
+    T = 20 * size  # width / 128
 
-    if dcf is not None:
-        cal_dcf = dcf[..., ind]
-        cal_ksp = cal_dcf * cal_ksp
+    # build center-out grid
+    R = torch.meshgrid(*R, indexing="xy")
+    R = torch.stack(R, dim=0)
+    R = (R**2).sum(dim=0) ** 0.5
 
-    # grid calibration
-    cal_ksp = _fft.nufft_adj(
-        cal_ksp, cal_coord, cal_shape, oversamp=2.0
-    ).squeeze()  # (nslices, ncoils, ny, nx) or (ncoils, nz, ny, nx)
-    if len(cal_ksp.shape) != 4:
-        cal_ksp = cal_ksp[None, ...]
-    if ndim == 2:
-        cal_ksp = cal_ksp.swapaxes(0, 1)
-    cal_ksp = _fft.fft(cal_ksp, axes=range(-3, 0))
+    # build filter
+    filt = 1 / (1 + torch.exp((R - radius)) / T)
+    filt /= filt.max()
 
-    return torch.as_tensor(cal_ksp, dtype=torch.complex64)
+    return filt
