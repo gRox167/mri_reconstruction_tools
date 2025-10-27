@@ -152,8 +152,12 @@ def get_csm_espirit(
         # image_size=image_size,
     ).to(original_device)
     # maps_sets = _espirit(
-    #     calib_data, kernel_size[0], acs_size[0], rank_threshold, crop_threshold
-    # )
+    #     calib_data.to(esprit_device),
+    #     kernel_size[0],
+    #     acs_size[0],
+    #     rank_threshold,
+    #     crop_threshold,
+    # ).to(original_device) # only cpu is right, gpu has bug
     print("maps_sets.shape", maps_sets.shape)
 
     primary_maps = maps_sets[0]
@@ -180,7 +184,7 @@ def get_csm_espirit(
         #     primary_maps = einx.multiply("c z y x, z y x -> c z y x", primary_maps, phase)
         # Phase relative to first map and crop
         primary_maps *= torch.conj(
-            primary_maps[0] / (torch.abs(primary_maps[0]))  # + 1e-12)
+            primary_maps[0] / (torch.abs(primary_maps[0]) + 1e-12)
         )
 
     if normalize:
@@ -224,6 +228,8 @@ def _espirit_3d(
     )  # (ncoils, rd, rh, rw, kd, kh, kw)
     A = einx.rearrange("c rd rh rw kd kh kw -> (rd rh rw) (c kd kh kw)", patches)
 
+    # use complex 128
+    # A = A.to(dtype=torch.complex128)
     _, S, Vh = torch.linalg.svd(A, full_matrices=False)
     r = torch.sum(S >= rank_threshold * S[0]).item()
     kernels = (
@@ -239,9 +245,13 @@ def _espirit_3d(
             device=Vh.device,
         )
     )
-    kernels[:, :, _bounds(kd, kd), _bounds(kh, kh), _bounds(kw, kw)] = (
-        Vh[:r].view(r, ncoils, kd, kh, kw).conj()
-    )
+    kernels[
+        :,
+        :,
+        _bounds(kernels.shape[2], kd),
+        _bounds(kernels.shape[3], kh),
+        _bounds(kernels.shape[4], kw),
+    ] = Vh[:r].view(r, ncoils, kd, kh, kw).conj()
 
     # scale = (depth * height * width) ** 0.5
     scale = (
@@ -250,7 +260,9 @@ def _espirit_3d(
         else (depth * height * width) ** 0.5
     )
     kernel_volume = (kd * kh * kw) ** 0.5
-    kerimgs = comp.fft_nD(kernels).conj() * scale / kernel_volume  # why conj here?
+    kerimgs = (
+        comp.fft_nD((torch.flip(kernels, (-1, -2, -3)).conj())) * scale / kernel_volume
+    )
 
     K = einx.rearrange("r c d h w -> (d h w) c r", kerimgs)
     # batch processed eigen-decomposition
@@ -258,29 +270,25 @@ def _espirit_3d(
         nsets,
         ncoils,
         (depth * height * width) if image_size is None else np.prod(image_size),
-        dtype=K.dtype,
+        dtype=kspace_data.dtype,
         device=K.device,
     )
-    for i, K_batched in enumerate(torch.split(K, 1024, dim=0)):
-        # print("K_batched.shape", K_batched.shape)
-        G_batched = torch.bmm(K_batched, K_batched.adjoint())
-        # print("G_batched.shape", G_batched.shape)
-        # perform eigen-decomposition
-        w_batched, V_batched = torch.linalg.eig(G_batched)
-        w_batched = w_batched.real
-        sort_indices_batched = torch.argsort(w_batched, descending=True)
-        mask = w_batched >= crop_threshold
-        selected_indices_batched = sort_indices_batched[:, :nsets]
-        U_batched = einx.get_at(
-            "b c1 [c2], b i -> i c1 b",
-            V_batched * mask[:, None, :],
-            selected_indices_batched,
-        )
+    b = 4096
+    for i, K_batched in enumerate(torch.split(K, b, dim=0)):
+        # G_batched = torch.bmm(K_batched, K_batched.adjoint())
+        # w_batched, V_batched = torch.linalg.eigh(G_batched)
+        # mask = w_batched >= crop_threshold
+        # U_batched = V_batched[:, :, -nsets:] * mask[:, None, -nsets:]
+        u, s, vh = torch.linalg.svd(K_batched, full_matrices=True)
+        mask = s**2 >= crop_threshold
+        u = mask[:, None] * u
+        U_batched = u[:, :, :nsets]  # (b, c1, nsets)
+        U_batched = einx.rearrange("b c1 r -> r c1 b", U_batched)
         U[
             :,
             :,
-            i * 1024 : (i + 1) * 1024 if (i + 1) * 1024 <= K.shape[0] else K.shape[0],
-        ] = U_batched
+            i * b : (i + 1) * b if (i + 1) * b <= K.shape[0] else K.shape[0],
+        ] = U_batched.to(dtype=kspace_data.dtype)
     return (
         U.view(nsets, ncoils, depth, height, width)
         if image_size is None
@@ -357,7 +365,6 @@ def _espirit(X, k, r, t, c):
     u, s, vh = torch.linalg.svd(
         kerimgs.view(sx, sy, sz, nc, n).reshape(-1, nc, n), full_matrices=True
     )
-    print("s:", (s[:, :1] ** 2).min(), (s[:, :1] ** 2).max(), (s[:, :1] ** 2).mean())
     mask = s**2 > c
 
     # mask u (nvoxels, neigen, neigen)

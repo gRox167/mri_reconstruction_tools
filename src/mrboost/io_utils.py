@@ -366,7 +366,7 @@ def plot_csm(
     mag_scale="normalize",  # 'normalize' or 'log'
     figsize=None,
     grid=None,  # (rows, cols); if None -> automatic square-ish
-    per_axis_colorbar=True,
+    per_axis_colorbar=False,
     inset=False,  # put colorbars inside each axes; if False, attach on the side of each axes
     title_prefix="coil",
     transform=None,  # optional callable to transform each coil image before colorizing
@@ -406,8 +406,6 @@ def plot_csm(
     def _to_numpy(x):
         # Convert torch -> numpy if needed
         try:
-            import torch
-
             if isinstance(x, torch.Tensor):
                 # Keep complex dtype; detach CPU; no copy unless needed
                 x = x.detach().cpu().numpy()
