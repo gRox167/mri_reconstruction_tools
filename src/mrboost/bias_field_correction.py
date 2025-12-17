@@ -18,7 +18,7 @@ def n4_bias_field_correction_3d_complex(
     """
     # Extract magnitude from complex tensor
     magnitude = x.abs().cpu().numpy().astype(np.float32)
-
+    
     # Convert to ANTs image (ANTs requires channel-first format) current: 
     ants_img = ants.from_numpy(magnitude.transpose(2, 1, 0))  # ANTs uses (W,H,D) format
     
@@ -30,7 +30,6 @@ def n4_bias_field_correction_3d_complex(
         mask=None,
         verbose=False,
     )
-
     # Convert back to PyTorch tensor
     corrected_np = corrected.numpy().transpose(
         2, 1, 0
@@ -38,5 +37,6 @@ def n4_bias_field_correction_3d_complex(
     corrected_tensor = torch.from_numpy(corrected_np).to(x.device)
 
     # Preserve phase information
-    phase = torch.angle(x)
+    phase =  torch.angle(x).to(torch.float32)  
+
     return torch.polar(corrected_tensor, phase)

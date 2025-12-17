@@ -61,7 +61,8 @@ class ReconArgs:
             self.FOV = self.twixobj["hdr"]["Meas"]["RoFOV"]  # type: ignore
         except KeyError:
             self.FOV = self.twixobj["hdr"]["Protocol"]["RoFOV"]
-        if self.readout_oversampling_removed:
-            self.im_size = (self.spoke_len, self.spoke_len)
-        else:
-            self.im_size = (self.spoke_len // 2, self.spoke_len // 2)
+        # if self.readout_oversampling_removed:
+        #     self.im_size = (self.spoke_len, self.spoke_len)
+        # else:
+        #     self.im_size = (self.spoke_len // 2, self.spoke_len // 2)
+        self.im_size = (360, 360)

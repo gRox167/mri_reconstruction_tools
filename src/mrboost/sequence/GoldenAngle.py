@@ -23,7 +23,7 @@ class GoldenAngleArgs(ReconArgs):
     )
     bias_field_correction: bool = field(default=False)
     return_csm: bool = field(default=True)
-    return_multi_channel_image: bool = field(default=False)
+    return_multi_channel_image: bool = field(default=True)
     filtered_density_compensation_ratio: float = field(default=0.0)
 
     def __post_init__(self):

@@ -13,7 +13,9 @@ from ..coil_sensitivity_estimation import get_csm_lowk_xyz
 import numpy as np
 import einx
 from typing import Sequence, Callable
-from ..density_compensation import ramp_density_compensation
+from mrboost.density_compensation.area_based_radial import (
+    area_based_radial_density_compensation,
+)
 
 @dataclass
 class BlackBoneStationaryArgs(GoldenAngleArgs):
@@ -34,12 +36,12 @@ def preprocess_raw_data(raw_data: torch.Tensor, recon_args: BlackBoneStationaryA
 def mcnufft_reconstruct_partial(
     kspace_data_centralized,
     kspace_traj,
-    recon_args: BlackBoneStationaryArgs,
+    im_size,
     csm_lowk_hamming_ratio: Sequence[float] = [0.05, 0.05],
-    density_compensation_func: Callable = ramp_density_compensation,
+    density_compensation_func: Callable = area_based_radial_density_compensation,
     return_multi_channel: bool = False,
-    *args,
-    **kwargs,
+    # *args,
+    # **kwargs,
 ):
     # kspace_data_centralized, kspace_traj = (
     #     data_preprocessed["kspace_data_centralized"][:,:,80,:],
@@ -48,13 +50,13 @@ def mcnufft_reconstruct_partial(
     csm = get_csm_lowk_xyz(
         kspace_data_centralized,
         kspace_traj,
-        recon_args.im_size,
+        im_size,
         csm_lowk_hamming_ratio,
         # recon_args.device,
     ) #3d coil sensitivity map
     kspace_density_compensation = density_compensation_func(
         kspace_traj,
-        im_size=recon_args.im_size,
+        im_size=im_size,
         normalize=False,
         energy_match_radial_with_cartisian=True,
     ) # adjust the weights to match the energy of the radial and cartesian trajectories
@@ -69,8 +71,8 @@ def mcnufft_reconstruct_partial(
     img_multi_ch = comp.nufft_adj_2d(
         kspace_data_z * kspace_density_compensation,
         kspace_traj,
-        recon_args.im_size,
-        norm_factor=2 * np.sqrt(np.prod(recon_args.im_size)),
+        im_size,
+        norm_factor=2 * np.sqrt(np.prod(im_size)),
         # 2 because of readout_oversampling
     )
     #print('img_multi_ch')
@@ -88,4 +90,4 @@ def mcnufft_reconstruct(
     return_dict = mcnufft_reconstruct.invoke(Dict[str, torch.Tensor], GoldenAngleArgs)(
         data_preprocessed, recon_args, *args, **kwargs
     )
-    return return_dict["image"], return_dict["csm"]
+    return return_dict["image"], return_dict["csm"], return_dict["image_multi_ch"]

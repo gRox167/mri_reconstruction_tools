@@ -100,7 +100,7 @@ def get_raw_data(dat_file_location: Path, multi_echo=False):
     print("dat_file_location is ", dat_file_location)
     if not os.path.exists(dat_file_location):
         raise FileNotFoundError("File not found")
-    twixobj = read_twix(dat_file_location)[-1]
+    twixobj = read_twix(dat_file_location,parse_pmu=False)[-1]
 
     raw_data = map_twix(twixobj)["image"]
     # raw_data.flags["remove_os"] = True # will led to warp in radial sampling

@@ -508,10 +508,12 @@ def nufft_2d(
     norm_factor: Number | NoneType = None,
 ) -> Shaped[KspaceData, "..."]:
     *batch_shape, _, length = kspace_traj.shape # ..batch, 2, sp*len
+    ic(kspace_traj.shape)
     batch_size = np.prod(batch_shape, dtype=int) ## z*1,2 sp*len
     kspace_traj_batched = kspace_traj.view(-1, 2, length) # combine the first two dimensions
- 
+    ic(kspace_traj_batched.shape)
     *channel_shape, h, w = images.shape[len(batch_shape) :]
+    ic(images.shape)
     images_batched = images.contiguous().view(batch_size, *channel_shape, h, w) # 160, 320,320
     output = torch.stack(
         [

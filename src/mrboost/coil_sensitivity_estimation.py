@@ -131,30 +131,33 @@ def get_csm_lowk_xy(
 @overload 
 def get_csm_lowk_xyz(
     kspace_data:Shaped[KspaceData,"ch z"],
-    kspace_traj:Shaped[KspaceSpokesTraj,"z ch"],
+    kspace_traj:Shaped[KspaceSpokesTraj,"z"],
     im_size,
     hamming_filter_ratio=[0.05, 0.1],
+    turn_on_kz_ifft=True,
 ):
-    ch,z, sp, spoke_len = kspace_data.shape #ch,kz,spokes,spoke_len
-    kspace_density_compensation_ = ramp_density_compensation_Inner2(
-        kspace_traj[1,1,:,:,:], im_size,False, False
-    ) 
-    spoke_len = kspace_data.shape[-1]
-    W = comp.hanning_filter(
-        nonzero_width_percent=hamming_filter_ratio[0], width=spoke_len
-    ) #for kx-ky
-    spoke_lowpass_filter_xy = torch.from_numpy(W)
-    Wz = comp.hanning_filter(nonzero_width_percent=hamming_filter_ratio[1], width=z) #kz
-    spoke_lowpass_filter_z = torch.from_numpy(Wz)
-    # kspace_data =  kspace_data*spoke_lowpass_filter_xy
-    kspace_data = einx.multiply(
-        "len, z, ch z sp len -> ch z sp len",
-        spoke_lowpass_filter_xy, #dimension: len
-        spoke_lowpass_filter_z,#dimension:z
-        kspace_data,#dimension: ch z sp len
-    )
-
-    kspace_data = comp.ifft_1D(kspace_data , dim=1) #ifft along z. 
+    if turn_on_kz_ifft:
+        ch,z, sp, spoke_len = kspace_data.shape #ch,kz,spokes,spoke_len
+        kspace_density_compensation_ = area_based_radial_density_compensation(
+            kspace_traj[1,1,:,:,:], im_size,False, False
+        ) 
+        spoke_len = kspace_data.shape[-1]
+        W = comp.hanning_filter(
+            nonzero_width_percent=hamming_filter_ratio[0], width=spoke_len
+        ) #for kx-ky
+        spoke_lowpass_filter_xy = torch.from_numpy(W)
+        Wz = comp.hanning_filter(nonzero_width_percent=hamming_filter_ratio[1], width=z) #kz
+        spoke_lowpass_filter_z = torch.from_numpy(Wz)
+        kspace_data = einx.multiply(
+            "len, z, ch z sp len -> ch z sp len",
+            spoke_lowpass_filter_xy, #dimension: len
+            spoke_lowpass_filter_z,#dimension:z
+            kspace_data,#dimension: ch z sp len
+        )
+        kspace_data = comp.ifft_1D(kspace_data , dim=1) #ifft along z. 
+    else: 
+        kspace_data = kspace_data
+        
     kspace_data = kspace_data / kspace_data.abs().max() #normalize
     kspace_data_s = einx.rearrange("ch z sp len -> z ch sp len",kspace_data)
     coil_sens = comp.nufft_adj_2d(
@@ -178,25 +181,31 @@ def get_csm_lowk_xyz(
     kspace_traj:KspaceSpokesTraj,# 2 sp length
     im_size,
     hamming_filter_ratio=[0.05, 0.05],
+    turn_on_kz_ifft=True,
 ):
-    ch,z, sp, spoke_len = kspace_data.shape #ch,kz,spokes,spoke_len
+    if turn_on_kz_ifft:
+        ch,z, sp, spoke_len = kspace_data.shape #ch,kz,spokes,spoke_len
+        spoke_len = kspace_data.shape[-1]
+        W = comp.hanning_filter(
+            nonzero_width_percent=hamming_filter_ratio[0], width=spoke_len
+        ) #for kx-ky
+        spoke_lowpass_filter_xy = torch.from_numpy(W)
+        Wz = comp.hanning_filter(nonzero_width_percent=hamming_filter_ratio[1], width=z) #kz
+        spoke_lowpass_filter_z = torch.from_numpy(Wz)
+        print("spoke_lowpass_filter_z:",spoke_lowpass_filter_z.shape)
+        kspace_data = einx.multiply(
+            "len, z, ch z sp len -> ch z sp len",
+            spoke_lowpass_filter_xy, #dimension: len
+            spoke_lowpass_filter_z,#dimension:z
+            kspace_data,#dimension: ch z sp len
+        )
+        
+        kspace_data = comp.ifft_1D(kspace_data , dim=1) #ifft along z. 
+    else:
+        kspace_data = kspace_data
+        
     kspace_density_compensation_ = area_based_radial_density_compensation(
-        kspace_traj, im_size)
-
-    spoke_len = kspace_data.shape[-1]
-    W = comp.hanning_filter(
-        nonzero_width_percent=hamming_filter_ratio[0], width=spoke_len
-    ) #for kx-ky
-    spoke_lowpass_filter_xy = torch.from_numpy(W)
-    Wz = comp.hanning_filter(nonzero_width_percent=hamming_filter_ratio[1], width=z) #kz
-    spoke_lowpass_filter_z = torch.from_numpy(Wz)
-    kspace_data = einx.multiply(
-        "len, z, ch z sp len -> ch z sp len",
-        spoke_lowpass_filter_xy, #dimension: len
-        spoke_lowpass_filter_z,#dimension:z
-        kspace_data,#dimension: ch z sp len
-    )
-    kspace_data = comp.ifft_1D(kspace_data , dim=1) #ifft along z. 
+            kspace_traj, im_size)
     kspace_data = kspace_data / kspace_data.abs().max() #normalize
     coil_sens = comp.nufft_adj_2d(
         comp.radial_spokes_to_kspace_point(kspace_data*kspace_density_compensation_), # ch z sp,length -> ch z splength
